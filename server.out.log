@@ -1,0 +1,12 @@
+INFO:     127.0.0.1:55162 - "GET /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49764 - "GET / HTTP/1.1" 303 See Other
+INFO:     127.0.0.1:49764 - "GET /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49764 - "GET /login-bg.png HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49764 - "GET /favicon.ico HTTP/1.1" 303 See Other
+INFO:     127.0.0.1:49764 - "GET /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49764 - "POST /login HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:49764 - "GET /favicon.ico HTTP/1.1" 303 See Other
+INFO:     127.0.0.1:49764 - "GET /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49525 - "POST /login HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:49525 - "GET /favicon.ico HTTP/1.1" 303 See Other
+INFO:     127.0.0.1:49525 - "GET /login HTTP/1.1" 200 OK
