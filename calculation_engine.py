@@ -1,3 +1,6 @@
+import calendar
+import re
+from datetime import date
 from itertools import groupby
 
 import config
@@ -6,6 +9,61 @@ import utils
 
 def _period_value(mes, ano):
     return int(ano) * 12 + config.MESES.index(mes)
+
+
+def payment_due_day(fecha_pago, year=None, month=None):
+    text = str(fecha_pago or "").strip().lower()
+    if not text:
+        return None
+
+    if year is None or month is None:
+        today = date.today()
+        year = today.year
+        month = today.month
+
+    days_in_month = calendar.monthrange(int(year), int(month))[1]
+    if text in {"primer dia", "primer día"}:
+        return 1
+    if text in {"ultimo dia", "último día"}:
+        return days_in_month
+
+    match = re.search(r"(\d+)", text)
+    if not match:
+        return None
+
+    count = int(match.group(1))
+    if "ultimo" in text or "último" in text:
+        return max(1, days_in_month - count + 1)
+    return min(days_in_month, count)
+
+
+def max_liquidation_period(fecha_pago, today=None):
+    today = today or date.today()
+    due_day = payment_due_day(fecha_pago, today.year, today.month)
+    year = today.year
+    month = today.month
+
+    if due_day and today.day < due_day:
+        month -= 1
+        if month == 0:
+            month = 12
+            year -= 1
+
+    return config.MESES[month - 1], str(year)
+
+
+def validate_liquidation_until_period(data, today=None):
+    fecha_pago = data.get("fecha_pago")
+    if not fecha_pago:
+        return
+
+    max_month, max_year = max_liquidation_period(fecha_pago, today)
+    selected_value = _period_value(data["mes_hasta"], data["ano_hasta"])
+    max_value = _period_value(max_month, max_year)
+    if selected_value > max_value:
+        raise ValueError(
+            f"Segun la Fecha de Pago seleccionada, solo puede liquidar hasta {max_month} {max_year}."
+        )
 
 
 def _normalize_history(historial_pensiones):
@@ -347,6 +405,7 @@ def calculate_liquidation(data):
     utils.cargar_utm_historico()
     utils.cargar_imr_historico()
 
+    validate_liquidation_until_period(data)
     _total_months(data)
     history = _normalize_history(data.get("historial_pensiones"))
     ajustes = _normalize_adjustments(data.get("ajustes_manuales"))

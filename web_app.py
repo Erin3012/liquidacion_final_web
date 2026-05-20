@@ -882,6 +882,7 @@ INDEX_HTML = r"""
       renderCartolas();
       renderEmolumentos();
       updateReajusteMode();
+      bindLiquidationPeriodLimit();
       bindAutoCalculate();
       bindCauseRequiredFields();
       isBooting = false;
@@ -905,6 +906,75 @@ INDEX_HTML = r"""
       const now = new Date();
       const offset = now.getTimezoneOffset() * 60000;
       return new Date(now.getTime() - offset).toISOString().slice(0, 10);
+    }
+
+    function normalizeText(text) {
+      return String(text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    }
+
+    function periodValue(mes, ano) {
+      return Number(ano) * 12 + optionsData.meses.indexOf(mes);
+    }
+
+    function paymentDueDay(fechaPago, date = new Date()) {
+      const text = normalizeText(fechaPago);
+      if (!text) return null;
+
+      const year = date.getFullYear();
+      const month = date.getMonth();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+      if (text === "primer dia") return 1;
+      if (text === "ultimo dia") return daysInMonth;
+
+      const match = text.match(/(\d+)/);
+      if (!match) return null;
+
+      const count = Number(match[1]);
+      if (text.includes("ultimo")) return Math.max(1, daysInMonth - count + 1);
+      return Math.min(daysInMonth, count);
+    }
+
+    function maxLiquidationPeriod(fechaPago, date = new Date()) {
+      const dueDay = paymentDueDay(fechaPago, date);
+      let monthIndex = date.getMonth();
+      let year = date.getFullYear();
+
+      if (dueDay && date.getDate() < dueDay) {
+        monthIndex -= 1;
+        if (monthIndex < 0) {
+          monthIndex = 11;
+          year -= 1;
+        }
+      }
+
+      return {mes: optionsData.meses[monthIndex], ano: String(year)};
+    }
+
+    function enforceUntilPeriodLimit(showMessage = false) {
+      const fechaPago = value("fecha_pago");
+      if (!fechaPago) return false;
+
+      const maxPeriod = maxLiquidationPeriod(fechaPago);
+      const selected = periodValue(value("mes_hasta"), value("ano_hasta"));
+      const allowed = periodValue(maxPeriod.mes, maxPeriod.ano);
+      if (selected <= allowed) return false;
+
+      document.getElementById("mes_hasta").value = maxPeriod.mes;
+      document.getElementById("ano_hasta").value = maxPeriod.ano;
+      if (showMessage) {
+        setStatus(`Periodo "Hasta" ajustado a ${maxPeriod.mes} ${maxPeriod.ano} según la Fecha de Pago.`);
+      }
+      return true;
+    }
+
+    function bindLiquidationPeriodLimit() {
+      ["fecha_pago", "mes_hasta", "ano_hasta"].forEach(id => {
+        document.getElementById(id).addEventListener("change", () => {
+          enforceUntilPeriodLimit(true);
+          scheduleCalculate();
+        });
+      });
     }
 
     function formatDateForDisplay(isoDate) {
@@ -990,7 +1060,8 @@ INDEX_HTML = r"""
     }
 
     async function calculate() {
-      setStatus("");
+      const adjustedPeriod = enforceUntilPeriodLimit(false);
+      setStatus(adjustedPeriod ? `Periodo "Hasta" ajustado según la Fecha de Pago.` : "");
       const payload = collectPayload();
       const res = await fetch(apiPath("/api/calculate"), {
         method: "POST",
@@ -1061,7 +1132,7 @@ INDEX_HTML = r"""
     }
 
     function bindAutoCalculate() {
-      const ignored = new Set(["cartolaFiles", "externalPdf", "emolumentosPdf"]);
+      const ignored = new Set(["cartolaFiles", "externalPdf", "emolumentosPdf", "fecha_pago", "mes_hasta", "ano_hasta"]);
       document.querySelectorAll("input, select, textarea").forEach(el => {
         if (ignored.has(el.id)) return;
         const eventName = el.tagName === "SELECT" || el.type === "checkbox" ? "change" : "input";
