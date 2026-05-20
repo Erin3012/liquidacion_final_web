@@ -45,7 +45,7 @@ set "LOG=%CD%\actualizar_desde_github.log"
 set "TMP_DIR=%TEMP%\liquidacion_final_web_update_%RANDOM%_%RANDOM%"
 set "ZIP_FILE=%TMP_DIR%\repo.zip"
 set "EXTRACT_DIR=%TMP_DIR%\extraido"
-set "AUTH_BACKUP=%TMP_DIR%\auth_config.local.json"
+set "JSON_BACKUP=%TMP_DIR%\json_backup"
 
 > "%LOG%" echo [%DATE% %TIME%] Inicio de actualizacion
 
@@ -54,9 +54,7 @@ call :log "Actualizador Liquidacion Final Web"
 call :log "=========================================="
 call :log "Carpeta: %CD%"
 
-if exist "auth_config.json" (
-    call :log "Se conservara auth_config.json local."
-)
+call :log "Se conservaran los archivos JSON locales."
 
 if exist ".git\" goto update_with_git
 goto update_with_zip
@@ -71,7 +69,8 @@ if errorlevel 1 (
 powershell -NoProfile -ExecutionPolicy Bypass -Command "New-Item -ItemType Directory -Path '%TMP_DIR%' -Force | Out-Null" >> "%LOG%" 2>&1
 if errorlevel 1 exit /b 1
 
-if exist "auth_config.json" copy /Y "auth_config.json" "%AUTH_BACKUP%" >> "%LOG%" 2>&1
+call :backup_json
+if errorlevel 1 exit /b 1
 
 call :log "Actualizando desde GitHub con git pull..."
 git fetch origin %BRANCH% >> "%LOG%" 2>&1
@@ -83,7 +82,8 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if exist "%AUTH_BACKUP%" copy /Y "%AUTH_BACKUP%" "auth_config.json" >> "%LOG%" 2>&1
+call :restore_json
+if errorlevel 1 exit /b 1
 goto cleanup_and_install
 
 :update_with_zip
@@ -92,7 +92,8 @@ call :log "Esta carpeta no tiene .git. Se descargara un ZIP desde GitHub."
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item -LiteralPath '%TMP_DIR%' -Recurse -Force -ErrorAction SilentlyContinue; New-Item -ItemType Directory -Path '%TMP_DIR%' -Force | Out-Null; New-Item -ItemType Directory -Path '%EXTRACT_DIR%' -Force | Out-Null" >> "%LOG%" 2>&1
 if errorlevel 1 exit /b 1
 
-if exist "auth_config.json" copy /Y "auth_config.json" "%AUTH_BACKUP%" >> "%LOG%" 2>&1
+call :backup_json
+if errorlevel 1 exit /b 1
 
 call :log "Descargando archivos actualizados..."
 powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%ZIP_URL%' -OutFile '%ZIP_FILE%' -UseBasicParsing" >> "%LOG%" 2>&1
@@ -131,7 +132,8 @@ if errorlevel 8 (
     exit /b 1
 )
 
-if exist "%AUTH_BACKUP%" copy /Y "%AUTH_BACKUP%" "auth_config.json" >> "%LOG%" 2>&1
+call :restore_json
+if errorlevel 1 exit /b 1
 goto cleanup_and_install
 
 :cleanup_and_install
@@ -163,4 +165,23 @@ exit /b 0
 :log
 echo %~1
 >> "%LOG%" echo [%DATE% %TIME%] %~1
+exit /b 0
+
+:backup_json
+call :log "Respaldando JSON locales..."
+robocopy "%CD%" "%JSON_BACKUP%" *.json /S /XD ".git" ".venv" ".idea" "__pycache__" "dist" >> "%LOG%" 2>&1
+if errorlevel 8 (
+    call :log "ERROR: No se pudieron respaldar los JSON locales."
+    exit /b 1
+)
+exit /b 0
+
+:restore_json
+if not exist "%JSON_BACKUP%" exit /b 0
+call :log "Restaurando JSON locales..."
+robocopy "%JSON_BACKUP%" "%CD%" *.json /E >> "%LOG%" 2>&1
+if errorlevel 8 (
+    call :log "ERROR: No se pudieron restaurar los JSON locales."
+    exit /b 1
+)
 exit /b 0

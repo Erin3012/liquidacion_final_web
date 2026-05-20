@@ -2,6 +2,7 @@
 .idea/
 __pycache__/
 *.pyc
+*.json
 server.err.log
 server.out.log
 dist/web_app/_internal/
