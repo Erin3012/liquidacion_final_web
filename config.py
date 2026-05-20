@@ -30,7 +30,7 @@ MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
 
 ANOS = [str(a) for a in range(1979, 2027)]
 
-REAJUSTES = ["IPC (Mensual)", "IPC (Semestral)", "IPC (Anual)", "IMRM"] #, "UTM"
+REAJUSTES = ["IPC (Mensual)", "IPC (Semestral)", "IPC (Anual)", "IMRM", "EMOLUMENTOS"] #, "UTM"
 
 # Patrón de limpieza para win32com
 BASURA_PJUD = [

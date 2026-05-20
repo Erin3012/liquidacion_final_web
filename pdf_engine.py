@@ -129,9 +129,13 @@ def generar_pdf(datos_causa, items_tabla, resumen, ciudad, reajuste_tipo, cartol
     if reajuste_tipo == "UTM":
         w = [32, 32, 13, 30, 40, 43]
         headers = ["Desde", "Hasta", "Meses", "Monto UTM", "Valor UTM", "Total Pesos"]
+    elif reajuste_tipo in ("EMOLUMENTOS", "EMOLUMNETOS"):
+        w = [28, 28, 30, 30, 30, 22, 22]
+        headers = ["Desde", "Hasta", "Renta Imp.", "Desc. Legal", "Base Calc.", "%", "Total"]
     else:
         w = [32, 32, 13, 23, 40, 50]
         headers = ["Desde", "Hasta", "Meses", "Reajuste", "Pensión reajustada", "Total"]
+    total_col_width = w[-1]
 
     if not cese_alimentos:
         pdf.set_font("Arial", 'B', 10)
@@ -147,19 +151,19 @@ def generar_pdf(datos_causa, items_tabla, resumen, ciudad, reajuste_tipo, cartol
                 continue # Salta esta fila y no la dibuja
             # -------------------------------
             
-            for i in range(6):
-                align = 'C' if i < 3 else 'R'
+            for i in range(len(w)):
+                align = 'C' if i < 2 else 'R'
                 pdf.cell(w[i], 6, str(row[i]), border=1, align='LEFT')
             pdf.ln()
 
     # --- SECCI?N TOTALES ---
-    ancho_lbl = sum(w[:5]) 
+    ancho_lbl = sum(w[:-1]) 
     pdf.set_font("Arial", 'B', 10)
 
     # 1. Subtotal Periodo Actual
     if not cese_alimentos:
         pdf.cell(ancho_lbl, 7, " Subtotal devengado periodo actual", border=1)
-        pdf.cell(w[5], 7, utils.formato_moneda(resumen['cargo_actual']), border=1, ln=True, align='L')
+        pdf.cell(total_col_width, 7, utils.formato_moneda(resumen['cargo_actual']), border=1, ln=True, align='L')
     
     # 2. Deuda de Arrastre
     if resumen['deuda_anterior'] != 0:
@@ -167,7 +171,7 @@ def generar_pdf(datos_causa, items_tabla, resumen, ciudad, reajuste_tipo, cartol
         if referencia_deuda_anterior:
             text_label += f" {referencia_deuda_anterior}"
         pdf.cell(ancho_lbl, 7, text_label, border=1)
-        pdf.cell(w[5], 7, utils.formato_moneda(resumen['deuda_anterior']), border=1, ln=True, align='L')
+        pdf.cell(total_col_width, 7, utils.formato_moneda(resumen['deuda_anterior']), border=1, ln=True, align='L')
 
 
     if 'ajustes_manuales' in resumen:
@@ -200,7 +204,7 @@ def generar_pdf(datos_causa, items_tabla, resumen, ciudad, reajuste_tipo, cartol
                 
                 # Dibujar bordes
                 pdf.rect(x, y, ancho_lbl, total_h)
-                pdf.rect(x + ancho_lbl, y, w[5], total_h)
+                pdf.rect(x + ancho_lbl, y, total_col_width, total_h)
                 
                 # Dibujar texto
                 pdf.set_xy(x, y)
@@ -209,7 +213,7 @@ def generar_pdf(datos_causa, items_tabla, resumen, ciudad, reajuste_tipo, cartol
                 
                 # Dibujar monto y pasar a la siguiente fila
                 pdf.set_xy(x + ancho_lbl, y)
-                pdf.cell(w[5], total_h, formato_moneda(ajuste['monto']), border=0, ln=1, align='L')
+                pdf.cell(total_col_width, total_h, formato_moneda(ajuste['monto']), border=0, ln=1, align='L')
 
    
 
@@ -222,7 +226,7 @@ def generar_pdf(datos_causa, items_tabla, resumen, ciudad, reajuste_tipo, cartol
     # Ajustamos la altura de la celda de 7 a 9 para que el texto de 12 puntos no quede apretado
     if not cese_alimentos:
         pdf.cell(ancho_lbl, 7, " Subtotal pensiones devengadas", border=1, fill=True)
-        pdf.cell(w[5], 7, utils.formato_moneda(resumen['subtotal_general']), border=1, fill=True, ln=True, align='L')
+        pdf.cell(total_col_width, 7, utils.formato_moneda(resumen['subtotal_general']), border=1, fill=True, ln=True, align='L')
 
     # --- IMPORTANTE: Si quieres que el resto del PDF vuelva a letra chica, 
     # debes resetearla despu?s de estas l?neas: ---
@@ -241,10 +245,10 @@ def generar_pdf(datos_causa, items_tabla, resumen, ciudad, reajuste_tipo, cartol
             if period and period != "No detectado":
                 texto_abonos += f" ({period})"
             pdf.cell(ancho_lbl, 7, texto_abonos, border=1)
-            pdf.cell(w[5], 7, formato_moneda(abonos), border=1, ln=True, align='L')
+            pdf.cell(total_col_width, 7, formato_moneda(abonos), border=1, ln=True, align='L')
     else:
         pdf.cell(ancho_lbl, 7, " (-) Abonos Cartola", border=1)
-        pdf.cell(w[5], 7, formato_moneda(0), border=1, ln=True, align='L')
+        pdf.cell(total_col_width, 7, formato_moneda(0), border=1, ln=True, align='L')
 
     # 5. AJUSTES MANUALES
     if 'ajustes_manuales' in resumen:
@@ -279,7 +283,7 @@ def generar_pdf(datos_causa, items_tabla, resumen, ciudad, reajuste_tipo, cartol
                 
                 # Dibujar bordes
                 pdf.rect(x, y, ancho_lbl, total_h)
-                pdf.rect(x + ancho_lbl, y, w[5], total_h)
+                pdf.rect(x + ancho_lbl, y, total_col_width, total_h)
                 
                 # Dibujar texto
                 pdf.set_xy(x, y)
@@ -289,7 +293,7 @@ def generar_pdf(datos_causa, items_tabla, resumen, ciudad, reajuste_tipo, cartol
                 # Dibujar monto y pasar a la siguiente fila
                 pdf.set_xy(x + ancho_lbl, y)
                 # Mostramos el monto con formato, pero se entiende que resta por el prefijo (-)
-                pdf.cell(w[5], total_h, formato_moneda(ajuste['monto']), border=0, ln=1, align='L')
+                pdf.cell(total_col_width, total_h, formato_moneda(ajuste['monto']), border=0, ln=1, align='L')
 
     # 6. Resultado Final
     final = resumen['total_final']
@@ -298,7 +302,7 @@ def generar_pdf(datos_causa, items_tabla, resumen, ciudad, reajuste_tipo, cartol
     pdf.set_font("Arial", 'B', 12)
     pdf.set_fill_color(*COLOR_PJUD) 
     pdf.cell(ancho_lbl, 7, texto_final, border=1, fill=True)
-    pdf.cell(w[5], 7, formato_moneda(final), border=1, fill=True, ln=True, align='L')
+    pdf.cell(total_col_width, 7, formato_moneda(final), border=1, fill=True, ln=True, align='L')
 
     # --- NUEVO: Observaciones Adicionales ---
     if observaciones_finales:

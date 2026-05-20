@@ -27,6 +27,8 @@ import auth  # noqa: E402
 import calculation_engine  # noqa: E402
 import cartola_parser  # noqa: E402
 import config  # noqa: E402
+import emolumentos_parser  # noqa: E402
+import excel_engine  # noqa: E402
 import pdf_engine  # noqa: E402
 import utils  # noqa: E402
 from multipart import parse_form  # noqa: E402
@@ -76,6 +78,14 @@ def _base_path(environ):
 
 def _is_secure(environ):
     return environ.get("wsgi.url_scheme") == "https" or environ.get("HTTP_X_FORWARDED_PROTO") == "https"
+
+
+def _current_user(environ):
+    return auth.session_user(auth.token_from_cookie_header(environ.get("HTTP_COOKIE", "")))
+
+
+def _is_admin(environ):
+    return bool((_current_user(environ) or {}).get("role") == "admin")
 
 
 def _response(start_response, status, body, content_type="text/plain; charset=utf-8", headers=None):
@@ -205,6 +215,60 @@ def _upload_cartolas(environ, start_response):
                 os.remove(path)
 
 
+def _upload_emolumentos(environ, start_response):
+    _fields, files = _parse_form(environ)
+    uploaded_files = files.get("file", [])
+    if not uploaded_files:
+        return _json(start_response, {"detail": "Debe adjuntar un PDF de emolumentos."}, "400 Bad Request")
+
+    item = uploaded_files[0]
+    suffix = os.path.splitext(item.filename or "")[1].lower()
+    if suffix != ".pdf":
+        return _json(start_response, {"detail": "Debe adjuntar un PDF de emolumentos."}, "400 Bad Request")
+
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(item.file.read())
+            temp_path = tmp.name
+        return _json(start_response, emolumentos_parser.parse_emolumentos_pdf(temp_path))
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
+
+
+def _save_ipc_values(environ, start_response):
+    if not _is_admin(environ):
+        return _json(start_response, {"detail": "Solo el rol admin puede modificar estos valores."}, "403 Forbidden")
+    saved = utils.guardar_ipc_rows((_read_json(environ) or {}).get("rows", []))
+    return _json(
+        start_response,
+        {
+            "kind": "ipc",
+            "title": "Valores IPC cargados",
+            "headers": ["Periodo", "Valor"],
+            "rows": [[key, value] for key, value in sorted(saved.items(), reverse=True)],
+            "editable": True,
+        },
+    )
+
+
+def _save_imr_values(environ, start_response):
+    if not _is_admin(environ):
+        return _json(start_response, {"detail": "Solo el rol admin puede modificar estos valores."}, "403 Forbidden")
+    saved = utils.guardar_imr_rows((_read_json(environ) or {}).get("rows", []))
+    return _json(
+        start_response,
+        {
+            "kind": "imr",
+            "title": "Valores IMRM cargados",
+            "headers": ["Desde", "Hasta", "Valor"],
+            "rows": [[row.get("Desde", ""), row.get("Hasta", ""), row.get("IMRM", row.get("IMR", ""))] for row in saved],
+            "editable": True,
+        },
+    )
+
+
 def _generate_pdf(environ, start_response):
     fields, files = _parse_form(environ)
     workdir = tempfile.mkdtemp(prefix="sitfa_pdf_")
@@ -235,6 +299,29 @@ def _generate_pdf(environ, start_response):
             "200 OK",
             body,
             "application/pdf",
+            [("Content-Disposition", f'attachment; filename="{filename}"')],
+        )
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def _generate_excel(environ, start_response):
+    fields, _files = _parse_form(environ)
+    workdir = tempfile.mkdtemp(prefix="sitfa_excel_")
+    try:
+        payload_text = fields["payload"][0]
+        data = payload_to_dict(LiquidationPayload(**json.loads(payload_text)))
+        result = calculation_engine.calculate_liquidation(data)
+        excel_args = calculation_engine.build_pdf_args(data, result, output_dir=workdir)
+        excel_path = excel_engine.generar_excel(**excel_args)
+        filename = os.path.basename(excel_path)
+        with open(excel_path, "rb") as file:
+            body = file.read()
+        return _response(
+            start_response,
+            "200 OK",
+            body,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             [("Content-Disposition", f'attachment; filename="{filename}"')],
         )
     finally:
@@ -324,9 +411,11 @@ def application(environ, start_response):
             return _json(
                 start_response,
                 {
+                    "kind": "ipc",
                     "title": "Valores IPC cargados",
                     "headers": ["Periodo", "Valor"],
                     "rows": [[key, value] for key, value in sorted(utils.BD_IPC_VALORES.items(), reverse=True)],
+                    "editable": _is_admin(environ),
                 },
             )
 
@@ -335,7 +424,22 @@ def application(environ, start_response):
             rows = []
             for tramo in utils.BD_IMR_VALORES:
                 rows.append([tramo.get("Desde", ""), tramo.get("Hasta", ""), tramo.get("IMRM", tramo.get("IMR", ""))])
-            return _json(start_response, {"title": "Valores IMR cargados", "headers": ["Desde", "Hasta", "Valor"], "rows": rows})
+            return _json(
+                start_response,
+                {
+                    "kind": "imr",
+                    "title": "Valores IMRM cargados",
+                    "headers": ["Desde", "Hasta", "Valor"],
+                    "rows": rows,
+                    "editable": _is_admin(environ),
+                },
+            )
+
+        if method == "POST" and path == "/api/indicators/ipc":
+            return _save_ipc_values(environ, start_response)
+
+        if method == "POST" and path == "/api/indicators/imr":
+            return _save_imr_values(environ, start_response)
 
         if method == "POST" and path == "/api/calculate":
             data = payload_to_dict(LiquidationPayload(**_read_json(environ)))
@@ -344,8 +448,14 @@ def application(environ, start_response):
         if method == "POST" and path == "/api/cartolas":
             return _upload_cartolas(environ, start_response)
 
+        if method == "POST" and path == "/api/emolumentos":
+            return _upload_emolumentos(environ, start_response)
+
         if method == "POST" and path == "/api/pdf":
             return _generate_pdf(environ, start_response)
+
+        if method == "POST" and path == "/api/excel":
+            return _generate_excel(environ, start_response)
 
         return _json(start_response, {"detail": "No encontrado"}, "404 Not Found")
     except Exception as exc:

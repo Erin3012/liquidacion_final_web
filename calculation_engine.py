@@ -77,6 +77,41 @@ def _normalize_cartolas(cartolas):
     return normalized
 
 
+def _normalize_emolumentos(emolumentos):
+    periodos = {}
+    for item in emolumentos or []:
+        mes = item.get("mes", "")
+        ano = str(item.get("ano", ""))
+        if mes not in config.MESES or not ano.isdigit():
+            periodo = str(item.get("periodo", ""))
+            if len(periodo) == 6 and periodo.isdigit():
+                mes_num = int(periodo[4:6])
+                if mes_num < 1 or mes_num > 12:
+                    continue
+                mes = config.MESES[mes_num - 1]
+                ano = periodo[:4]
+            else:
+                continue
+
+        key = (mes, ano)
+        current = periodos.setdefault(
+            key,
+            {
+                "mes": mes,
+                "ano": ano,
+                "periodo": f"{ano}{config.MESES.index(mes) + 1:02d}",
+                "estado": str(item.get("estado", "")),
+                "renta_imponible": 0,
+            },
+        )
+        current["renta_imponible"] += utils.limpiar_monto(item.get("renta_imponible", 0))
+
+    return sorted(
+        periodos.values(),
+        key=lambda x: (int(x["ano"]), config.MESES.index(x["mes"])),
+    )
+
+
 def _ipc_rows(data, history):
     m1 = data["mes_desde"]
     a1 = str(data["ano_desde"])
@@ -153,9 +188,9 @@ def _ipc_rows(data, history):
             if p_act and p_ant:
                 var_decimal = max(0, (p_act / p_ant) - 1)
 
-        p_corriente = p_corriente * (1 + var_decimal)
-        pension_reajustada = int(p_corriente)
-        subtotal = int(inc * p_corriente)
+        pension_reajustada = int(p_corriente * (1 + var_decimal))
+        p_corriente = pension_reajustada
+        subtotal = inc * pension_reajustada
         rows.append(
             [
                 f"{f_m}-{f_a}",
@@ -255,6 +290,47 @@ def _imr_rows(data, history):
     return rows, total
 
 
+def _emolumentos_rows(data, history):
+    total_m = _total_months(data)
+    porcentaje_actual = utils.limpiar_monto(
+        str(data["pension"]).replace("%", ""), admitir_decimales=True
+    ) / 100
+    emolumentos = _normalize_emolumentos(data.get("emolumentos"))
+    renta_por_periodo = {
+        (item["mes"], item["ano"]): item["renta_imponible"]
+        for item in emolumentos
+    }
+
+    rows = []
+    total = 0
+    for curr in range(total_m):
+        f_m, f_a = utils.calcular_proximo_periodo(
+            data["mes_desde"], str(data["ano_desde"]), curr, config.MESES
+        )
+        for cambio in history:
+            if cambio["mes"] == f_m and cambio["ano"] == f_a:
+                porcentaje_actual = cambio["monto"] / 100
+
+        renta_imponible = renta_por_periodo.get((f_m, f_a), 0)
+        descuentos_legales = int(renta_imponible * 0.20)
+        base_calculo = renta_imponible - descuentos_legales
+        monto_en_pesos = int(porcentaje_actual * base_calculo)
+        rows.append(
+            [
+                f"{f_m}-{f_a}",
+                f"{f_m}-{f_a}",
+                utils.formato_moneda(renta_imponible),
+                utils.formato_moneda(descuentos_legales),
+                utils.formato_moneda(base_calculo),
+                f"{porcentaje_actual:.2%}",
+                utils.formato_moneda(monto_en_pesos),
+            ]
+        )
+        total += monto_en_pesos
+
+    return rows, total
+
+
 def _total_months(data):
     total_m = (
         (int(data["ano_hasta"]) - int(data["ano_desde"])) * 12
@@ -276,11 +352,15 @@ def calculate_liquidation(data):
     ajustes = _normalize_adjustments(data.get("ajustes_manuales"))
     cartolas = _normalize_cartolas(data.get("cartolas"))
     reajuste_tipo = data["reajuste_tipo"]
+    if reajuste_tipo == "EMOLUMNETOS":
+        reajuste_tipo = "EMOLUMENTOS"
 
     if reajuste_tipo == "UTM":
         rows, cargo_actual = _utm_rows(data, history)
     elif reajuste_tipo == "IMRM":
         rows, cargo_actual = _imr_rows(data, history)
+    elif reajuste_tipo == "EMOLUMENTOS":
+        rows, cargo_actual = _emolumentos_rows(data, history)
     else:
         rows, cargo_actual = _ipc_rows(data, history)
 
@@ -296,7 +376,10 @@ def calculate_liquidation(data):
     subtotal = cargo_actual + monto_arrastre + total_aj_cargos
     total_final = subtotal - (abonos_cartola + total_aj_abonos)
 
-    rows_with_total = rows + [["TOTALES", "", "", "", "", utils.formato_moneda(total_periodos_visible)]]
+    column_count = len(rows[0]) if rows else 6
+    rows_with_total = rows + [
+        ["TOTALES"] + [""] * (column_count - 2) + [utils.formato_moneda(total_periodos_visible)]
+    ]
 
     resumen = {
         "cargo_actual": int(cargo_actual),
@@ -321,6 +404,8 @@ def build_pdf_args(data, result, external_pdf_path=None, output_dir=None):
     history = result.get("historial_pensiones", [])
     cartolas = result.get("cartolas", [])
     reajuste_tipo = data["reajuste_tipo"]
+    if reajuste_tipo == "EMOLUMNETOS":
+        reajuste_tipo = "EMOLUMENTOS"
 
     monto_pension_base_str = str(data["pension"])
     if reajuste_tipo == "UTM":
@@ -331,7 +416,7 @@ def build_pdf_args(data, result, external_pdf_path=None, output_dir=None):
         monto_pension_base_str = (
             f"{utils.formato_moneda(monto_final_utm, decimales=5).replace('$', '').strip()} UTM"
         )
-    elif reajuste_tipo != "IMRM":
+    elif reajuste_tipo != "IMRM" and reajuste_tipo != "EMOLUMENTOS":
         monto_pension_base_str = utils.formato_moneda(utils.limpiar_monto(data["pension"]))
 
     first_periodo_cartola = cartolas[0]["period"] if cartolas else "No detectado"

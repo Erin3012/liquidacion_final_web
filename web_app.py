@@ -16,6 +16,8 @@ import auth
 import calculation_engine
 import cartola_parser
 import config
+import emolumentos_parser
+import excel_engine
 import pdf_engine
 import utils
 
@@ -74,6 +76,11 @@ class LiquidationPayload(BaseModel):
     historial_pensiones: List[Dict[str, Any]] = Field(default_factory=list)
     ajustes_manuales: List[Dict[str, Any]] = Field(default_factory=list)
     cartolas: List[Dict[str, Any]] = Field(default_factory=list)
+    emolumentos: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class IndicatorRowsPayload(BaseModel):
+    rows: List[List[Any]] = Field(default_factory=list)
 
 
 def payload_to_dict(payload: LiquidationPayload):
@@ -90,6 +97,17 @@ def get_project_version():
         return f"{data.get('major', 0)}.{data.get('minor', 0)}.{data.get('build', 0)}"
     except Exception:
         return "sin versión"
+
+
+def current_user(request: Request):
+    return auth.session_user(request.cookies.get(auth.COOKIE_NAME))
+
+
+def require_admin(request: Request):
+    user = current_user(request)
+    if not user or user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Solo el rol admin puede modificar estos valores.")
+    return user
 
 
 @app.on_event("startup")
@@ -153,17 +171,19 @@ def ping():
 
 
 @app.get("/api/indicators/ipc")
-def get_ipc_values():
+def get_ipc_values(request: Request):
     utils.cargar_ipc_json_historico()
     return {
+        "kind": "ipc",
         "title": "Valores IPC cargados",
         "headers": ["Periodo", "Valor"],
         "rows": [[key, value] for key, value in sorted(utils.BD_IPC_VALORES.items(), reverse=True)],
+        "editable": bool((current_user(request) or {}).get("role") == "admin"),
     }
 
 
 @app.get("/api/indicators/imr")
-def get_imr_values():
+def get_imr_values(request: Request):
     utils.cargar_imr_historico()
     rows = []
     for tramo in utils.BD_IMR_VALORES:
@@ -175,9 +195,37 @@ def get_imr_values():
             ]
         )
     return {
-        "title": "Valores IMR cargados",
+        "kind": "imr",
+        "title": "Valores IMRM cargados",
         "headers": ["Desde", "Hasta", "Valor"],
         "rows": rows,
+        "editable": bool((current_user(request) or {}).get("role") == "admin"),
+    }
+
+
+@app.post("/api/indicators/ipc")
+def save_ipc_values(payload: IndicatorRowsPayload, request: Request):
+    require_admin(request)
+    saved = utils.guardar_ipc_rows(payload.rows)
+    return {
+        "kind": "ipc",
+        "title": "Valores IPC cargados",
+        "headers": ["Periodo", "Valor"],
+        "rows": [[key, value] for key, value in sorted(saved.items(), reverse=True)],
+        "editable": True,
+    }
+
+
+@app.post("/api/indicators/imr")
+def save_imr_values(payload: IndicatorRowsPayload, request: Request):
+    require_admin(request)
+    saved = utils.guardar_imr_rows(payload.rows)
+    return {
+        "kind": "imr",
+        "title": "Valores IMRM cargados",
+        "headers": ["Desde", "Hasta", "Valor"],
+        "rows": [[row.get("Desde", ""), row.get("Hasta", ""), row.get("IMRM", row.get("IMR", ""))] for row in saved],
+        "editable": True,
     }
 
 
@@ -226,6 +274,25 @@ def upload_cartolas(files: List[UploadFile] = File(...)):
                 os.remove(path)
 
 
+@app.post("/api/emolumentos")
+def upload_emolumentos(file: UploadFile = File(...)):
+    suffix = os.path.splitext(file.filename or "")[1].lower()
+    if suffix != ".pdf":
+        raise HTTPException(status_code=400, detail="Debe adjuntar un PDF de emolumentos.")
+
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            shutil.copyfileobj(file.file, tmp)
+            temp_path = tmp.name
+        return emolumentos_parser.parse_emolumentos_pdf(temp_path)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"No se pudo procesar el PDF de emolumentos: {exc}") from exc
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
+
+
 @app.post("/api/pdf")
 def generate_pdf(
     payload: str = Form(...),
@@ -253,6 +320,26 @@ def generate_pdf(
         return FileResponse(
             pdf_path,
             media_type="application/pdf",
+            filename=filename,
+            background=BackgroundTask(shutil.rmtree, workdir, ignore_errors=True),
+        )
+    except Exception as exc:
+        shutil.rmtree(workdir, ignore_errors=True)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/excel")
+def generate_excel(payload: str = Form(...)):
+    workdir = tempfile.mkdtemp(prefix="sitfa_excel_")
+    try:
+        data = payload_to_dict(LiquidationPayload(**json.loads(payload)))
+        result = calculation_engine.calculate_liquidation(data)
+        excel_args = calculation_engine.build_pdf_args(data, result, output_dir=workdir)
+        excel_path = excel_engine.generar_excel(**excel_args)
+        filename = os.path.basename(excel_path)
+        return FileResponse(
+            excel_path,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             filename=filename,
             background=BackgroundTask(shutil.rmtree, workdir, ignore_errors=True),
         )
@@ -527,6 +614,11 @@ INDEX_HTML = r"""
     .scroll-table .mini-table {
       margin-top: 0;
     }
+    .mini-table input, .mini-table select {
+      min-height: 30px;
+      padding: 5px 7px;
+      font-size: 13px;
+    }
     .hidden { display: none !important; }
     .file-input-hidden {
       position: absolute;
@@ -594,7 +686,8 @@ INDEX_HTML = r"""
     <h1>Unidad de Liquidaciones Especializadas de Concepción</h1>
     <div class="actions">
       <button id="ipcBtn" class="neutral" type="button">Ver IPC</button>
-      <button id="imrBtn" class="neutral" type="button">Ver IMR</button>
+      <button id="imrBtn" class="neutral" type="button">Ver IMRM</button>
+      <button id="excelBtn" class="secondary" type="button">Generar Excel</button>
       <button id="pdfBtn" class="danger" type="button">Generar PDF</button>
       <a id="logoutLink" class="logout-link" href="/logout">Salir</a>
     </div>
@@ -625,7 +718,7 @@ INDEX_HTML = r"""
           <label>Desde año<select id="ano_desde"></select></label>
           <label>Hasta mes<select id="mes_hasta"></select></label>
           <label>Hasta año<select id="ano_hasta"></select></label>
-          <label>Pensión mensual<input id="pension" value="$0"></label>
+          <label><span id="pensionLabel">Pensión mensual</span><input id="pension" value="$0"></label>
           <label>Reajuste<select id="reajuste_tipo"></select></label>
           <label>Meses a descontar<input id="descuento_meses" type="number" min="0" value="0"></label>
         </div>
@@ -633,6 +726,22 @@ INDEX_HTML = r"""
           <label><input id="tiene_arrastre" type="checkbox">Existe deuda de arrastre</label>
           <label><input id="cese_alimentos" type="checkbox">Cese de alimentos</label>
         </div>
+      </section>
+
+      <section id="emolumentosBox" class="hidden">
+        <h2>3. Emolumentos</h2>
+        <input id="emolumentosPdf" class="file-input-hidden" type="file" accept=".pdf" tabindex="-1">
+        <div class="actions" style="margin-top:10px">
+          <button class="secondary" type="button" onclick="document.getElementById('emolumentosPdf').click()">Importar PDF Previred</button>
+          <button class="neutral" type="button" onclick="addEmolumento()">Agregar periodo</button>
+          <button class="neutral" type="button" onclick="clearEmolumentos()">Limpiar</button>
+        </div>
+        <div class="grid" style="margin-top:10px">
+          <label>Mes<select id="emol_mes"></select></label>
+          <label>Año<select id="emol_ano"></select></label>
+          <label>Renta imponible<input id="emol_renta" value="$0"></label>
+        </div>
+        <table class="mini-table" id="emolumentosTable"></table>
       </section>
 
       <section id="arrastreBox" class="hidden">
@@ -709,7 +818,7 @@ INDEX_HTML = r"""
       <div class="table-wrap" id="periodTableWrap">
         <table class="calc-table" id="resultTable">
           <thead>
-            <tr><th>Desde</th><th>Hasta</th><th>Meses</th><th>Reajuste</th><th>Pensión reajustada</th><th>Total</th></tr>
+            <tr id="resultHeaderRow"><th>Desde</th><th>Hasta</th><th>Meses</th><th>Reajuste</th><th>Pensión reajustada</th><th>Total</th></tr>
           </thead>
           <tbody></tbody>
         </table>
@@ -731,7 +840,9 @@ INDEX_HTML = r"""
     let historialPensiones = [];
     let ajustesManuales = [];
     let cartolas = [];
+    let emolumentos = [];
     let lastPayload = null;
+    let currentIndicatorData = null;
     let calculateTimer = null;
     let isBooting = true;
 
@@ -754,8 +865,8 @@ INDEX_HTML = r"""
       const now = new Date();
       const monthName = optionsData.meses[now.getMonth()] || optionsData.meses[0];
       const year = String(now.getFullYear());
-      ["mes_desde", "mes_hasta", "hist_mes", "arrastre_mes_desde", "arrastre_mes_hasta"].forEach(id => fillSelect(id, optionsData.meses, monthName));
-      ["ano_desde", "ano_hasta", "hist_ano", "arrastre_ano_desde", "arrastre_ano_hasta"].forEach(id => fillSelect(id, optionsData.anos, year));
+      ["mes_desde", "mes_hasta", "hist_mes", "arrastre_mes_desde", "arrastre_mes_hasta", "emol_mes"].forEach(id => fillSelect(id, optionsData.meses, monthName));
+      ["ano_desde", "ano_hasta", "hist_ano", "arrastre_ano_desde", "arrastre_ano_hasta", "emol_ano"].forEach(id => fillSelect(id, optionsData.anos, year));
     }
 
     async function boot() {
@@ -769,6 +880,8 @@ INDEX_HTML = r"""
       renderHistory();
       renderAdjustments();
       renderCartolas();
+      renderEmolumentos();
+      updateReajusteMode();
       bindAutoCalculate();
       bindCauseRequiredFields();
       isBooting = false;
@@ -827,8 +940,16 @@ INDEX_HTML = r"""
         observaciones: value("observaciones"),
         historial_pensiones: historialPensiones,
         ajustes_manuales: ajustesManuales,
-        cartolas: cartolas
+        cartolas: cartolas,
+        emolumentos: emolumentos
       };
+    }
+
+    function updateResultHeaders() {
+      const headers = value("reajuste_tipo") === "EMOLUMENTOS"
+        ? ["Desde", "Hasta", "Renta imponible", "Descuentos legales", "Base de cálculo", "Porcentaje", "Total"]
+        : ["Desde", "Hasta", "Meses", "Reajuste", "Pensión reajustada", "Total"];
+      document.getElementById("resultHeaderRow").innerHTML = headers.map(header => `<th>${header}</th>`).join("");
     }
 
     function renderRows(rows) {
@@ -883,6 +1004,7 @@ INDEX_HTML = r"""
       const data = await res.json();
       alignSummaryWithVisibleTotals(data);
       lastPayload = payload;
+      updateResultHeaders();
       renderRows(data.rows_with_total);
       renderSummary(data);
       updatePeriodTableVisibility();
@@ -907,7 +1029,7 @@ INDEX_HTML = r"""
       const totalRow = data.rows_with_total.find(row => Array.isArray(row) && row[0] === "TOTALES");
       if (!totalRow) return;
 
-      const visibleCargo = checked("cese_alimentos") ? 0 : parseMoneyValue(totalRow[5]);
+      const visibleCargo = checked("cese_alimentos") ? 0 : parseMoneyValue(totalRow[totalRow.length - 1]);
       const resumen = data.resumen;
       const deudaAnterior = Number(resumen.deuda_anterior || 0);
       const totalAbonos = Number(resumen.total_abonos || 0);
@@ -931,38 +1053,73 @@ INDEX_HTML = r"""
       calculateTimer = window.setTimeout(calculate, 350);
     }
 
+    function updateReajusteMode() {
+      const isEmolumentos = value("reajuste_tipo") === "EMOLUMENTOS";
+      document.getElementById("emolumentosBox").classList.toggle("hidden", !isEmolumentos);
+      document.getElementById("pensionLabel").textContent = isEmolumentos ? "Porcentaje pensión mensual" : "Pensión mensual";
+      updateResultHeaders();
+    }
+
     function bindAutoCalculate() {
-      const ignored = new Set(["cartolaFiles", "externalPdf"]);
+      const ignored = new Set(["cartolaFiles", "externalPdf", "emolumentosPdf"]);
       document.querySelectorAll("input, select, textarea").forEach(el => {
         if (ignored.has(el.id)) return;
         const eventName = el.tagName === "SELECT" || el.type === "checkbox" ? "change" : "input";
         el.addEventListener(eventName, scheduleCalculate);
       });
+      document.getElementById("reajuste_tipo").addEventListener("change", updateReajusteMode);
     }
 
     async function showIndicator(kind) {
       setStatus("");
       const res = await fetch(apiPath(`/api/indicators/${kind}`));
       if (!res.ok) {
-        setStatus(`No se pudieron cargar los valores ${kind.toUpperCase()}.`);
+        let detail = "";
+        try {
+          detail = (await res.json()).detail || "";
+        } catch (_error) {
+          detail = await res.text();
+        }
+        setStatus(`No se pudieron cargar los valores ${kind.toUpperCase()}.${detail ? " " + detail : ""}`);
         return;
       }
       const data = await res.json();
+      currentIndicatorData = data;
+      renderIndicatorModal(data);
+    }
+
+    function renderIndicatorModal(data) {
       const headerRow = data.headers.map(h => `<th>${escapeHtml(h)}</th>`).join("");
-      const bodyRows = data.rows.map(row => {
-        return `<tr>${row.map(cell => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`;
+      const bodyRows = data.rows.map((row, rowIndex) => {
+        if (!data.editable) {
+          return `<tr>${row.map(cell => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`;
+        }
+        const cells = row.map((cell, colIndex) => {
+          const inputType = colIndex === row.length - 1 ? "number" : "text";
+          const step = data.kind === "ipc" && colIndex === 1 ? "0.01" : "1";
+          return `<td><input data-indicator-row="${rowIndex}" data-indicator-col="${colIndex}" type="${inputType}" step="${step}" value="${escapeHtml(cell)}"></td>`;
+        }).join("");
+        return `<tr>${cells}<td><button class="danger small" type="button" onclick="removeIndicatorRow(${rowIndex})">Eliminar</button></td></tr>`;
       }).join("");
+      const actionHeader = data.editable ? "<th>Accion</th>" : "";
+      const adminActions = data.editable ? `
+        <button class="secondary small" type="button" onclick="addIndicatorRow()">Agregar fila</button>
+        <button class="danger small" type="button" onclick="saveIndicatorValues()">Guardar cambios</button>
+      ` : "";
       const modal = document.getElementById("indicatorModal");
       modal.innerHTML = `
         <div class="modal" role="dialog" aria-modal="true">
           <div class="modal-head">
             <h2>${escapeHtml(data.title)}</h2>
-            <button class="neutral small" type="button" onclick="closeIndicatorModal()">Cerrar</button>
+            <div class="actions">
+              ${adminActions}
+              <button class="neutral small" type="button" onclick="closeIndicatorModal()">Cerrar</button>
+            </div>
           </div>
           <div class="modal-body">
             <table class="mini-table">
-              <tr>${headerRow}</tr>
-              ${bodyRows || '<tr><td colspan="3">No hay valores cargados.</td></tr>'}
+              <tr>${headerRow}${actionHeader}</tr>
+              ${bodyRows || `<tr><td colspan="${data.headers.length + (data.editable ? 1 : 0)}">No hay valores cargados.</td></tr>`}
             </table>
           </div>
         </div>
@@ -970,10 +1127,56 @@ INDEX_HTML = r"""
       modal.classList.remove("hidden");
     }
 
+    function collectIndicatorRows() {
+      if (!currentIndicatorData) return [];
+      if (!currentIndicatorData.editable) return currentIndicatorData.rows || [];
+      const rows = [];
+      document.querySelectorAll("[data-indicator-row]").forEach(input => {
+        const rowIndex = Number(input.dataset.indicatorRow);
+        const colIndex = Number(input.dataset.indicatorCol);
+        if (!rows[rowIndex]) rows[rowIndex] = [];
+        rows[rowIndex][colIndex] = input.value.trim();
+      });
+      return rows.filter(row => row && row.some(cell => String(cell || "").trim()));
+    }
+
+    function addIndicatorRow() {
+      if (!currentIndicatorData) return;
+      const emptyRow = currentIndicatorData.kind === "imr" ? ["", "", ""] : ["", ""];
+      currentIndicatorData.rows = [emptyRow].concat(collectIndicatorRows());
+      renderIndicatorModal(currentIndicatorData);
+    }
+
+    function removeIndicatorRow(index) {
+      if (!currentIndicatorData) return;
+      currentIndicatorData.rows = collectIndicatorRows().filter((_row, rowIndex) => rowIndex !== index);
+      renderIndicatorModal(currentIndicatorData);
+    }
+
+    async function saveIndicatorValues() {
+      if (!currentIndicatorData) return;
+      const kind = currentIndicatorData.kind;
+      const rows = collectIndicatorRows();
+      const res = await fetch(apiPath(`/api/indicators/${kind}`), {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({rows})
+      });
+      if (!res.ok) {
+        setStatus((await res.json()).detail || "No se pudieron guardar los valores.");
+        return;
+      }
+      currentIndicatorData = await res.json();
+      renderIndicatorModal(currentIndicatorData);
+      setStatus(`Valores ${kind.toUpperCase()} guardados.`);
+      scheduleCalculate();
+    }
+
     function closeIndicatorModal() {
       const modal = document.getElementById("indicatorModal");
       modal.classList.add("hidden");
       modal.innerHTML = "";
+      currentIndicatorData = null;
     }
 
     async function pasteSitfaData() {
@@ -1099,6 +1302,28 @@ INDEX_HTML = r"""
       window.URL.revokeObjectURL(url);
     }
 
+    async function generateExcel() {
+      if (!validateCauseRequiredFields()) return;
+      const calculated = await calculate();
+      if (!calculated) return;
+      const form = new FormData();
+      form.append("payload", JSON.stringify(lastPayload));
+      const res = await fetch(apiPath("/api/excel"), { method: "POST", body: form });
+      if (!res.ok) {
+        setStatus((await res.json()).detail || "No se pudo generar el Excel.");
+        return;
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Liquidacion_${value("rit") || "SITFA"}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    }
+
     function addHistory() {
       historialPensiones.push({mes: value("hist_mes"), ano: value("hist_ano"), monto: value("hist_monto")});
       renderHistory();
@@ -1164,6 +1389,110 @@ INDEX_HTML = r"""
       renderCartolas();
       closeCartolaMovements();
       scheduleCalculate();
+    }
+
+    function emolPeriodo(row) {
+      const monthIndex = (optionsData.meses || []).indexOf(row.mes) + 1;
+      return row.ano && monthIndex > 0 ? `${row.ano}${String(monthIndex).padStart(2, "0")}` : "";
+    }
+
+    function mergeEmolumentos(rows) {
+      const merged = new Map();
+      rows.forEach(row => {
+        const periodo = row.periodo || emolPeriodo(row);
+        if (!periodo) return;
+        const key = periodo;
+        const current = merged.get(key) || {
+          periodo,
+          mes: row.mes,
+          ano: row.ano,
+          estado: row.estado || "",
+          renta_imponible: 0,
+        };
+        current.renta_imponible += cleanCartolaAmount(row.renta_imponible);
+        if (!current.estado && row.estado) current.estado = row.estado;
+        merged.set(key, current);
+      });
+      return Array.from(merged.values()).sort((a, b) => String(b.periodo).localeCompare(String(a.periodo)));
+    }
+
+    function monthOptions(selected) {
+      return (optionsData.meses || []).map(mes => `<option value="${escapeHtml(mes)}"${mes === selected ? " selected" : ""}>${escapeHtml(mes)}</option>`).join("");
+    }
+
+    function yearOptions(selected) {
+      return (optionsData.anos || []).map(ano => `<option value="${escapeHtml(ano)}"${String(ano) === String(selected) ? " selected" : ""}>${escapeHtml(ano)}</option>`).join("");
+    }
+
+    function addEmolumento() {
+      const row = {
+        mes: value("emol_mes"),
+        ano: value("emol_ano"),
+        renta_imponible: value("emol_renta"),
+      };
+      row.periodo = emolPeriodo(row);
+      emolumentos.push(row);
+      renderEmolumentos();
+      scheduleCalculate();
+    }
+
+    function updateEmolumento(index, field, newValue) {
+      if (!emolumentos[index]) return;
+      emolumentos[index][field] = newValue;
+      if (field === "mes" || field === "ano") {
+        emolumentos[index].periodo = emolPeriodo(emolumentos[index]);
+      }
+      scheduleCalculate();
+    }
+
+    function removeEmolumento(index) {
+      emolumentos.splice(index, 1);
+      renderEmolumentos();
+      scheduleCalculate();
+    }
+
+    function clearEmolumentos() {
+      emolumentos = [];
+      document.getElementById("emolumentosPdf").value = "";
+      renderEmolumentos();
+      scheduleCalculate();
+    }
+
+    function renderEmolumentos() {
+      const total = emolumentos.reduce((sum, row) => sum + cleanCartolaAmount(row.renta_imponible), 0);
+      document.getElementById("emolumentosTable").innerHTML =
+        "<tr><th>Periodo</th><th>Mes</th><th>Año</th><th>Renta imponible</th><th>Eliminar</th></tr>" +
+        emolumentos.map((row, index) => `
+          <tr>
+            <td>${escapeHtml(row.periodo || emolPeriodo(row))}</td>
+            <td><select onchange="updateEmolumento(${index}, 'mes', this.value)">${monthOptions(row.mes)}</select></td>
+            <td><select onchange="updateEmolumento(${index}, 'ano', this.value)">${yearOptions(row.ano)}</select></td>
+            <td><input value="${escapeHtml(formatMoney(cleanCartolaAmount(row.renta_imponible)))}" oninput="updateEmolumento(${index}, 'renta_imponible', this.value)"></td>
+            <td><button class="danger small icon-button" type="button" title="Eliminar emolumento" aria-label="Eliminar emolumento" onclick="removeEmolumento(${index})">&#128465;</button></td>
+          </tr>
+        `).join("") +
+        `<tr><td colspan="3"><strong>Total renta imponible importada</strong></td><td><strong>${formatMoney(total)}</strong></td><td></td></tr>`;
+    }
+
+    async function loadEmolumentosPdf() {
+      const input = document.getElementById("emolumentosPdf");
+      const file = input.files[0];
+      if (!file) return;
+      setStatus("Leyendo PDF de emolumentos...");
+      try {
+        const form = new FormData();
+        form.append("file", file);
+        const res = await fetch(apiPath("/api/emolumentos"), {method: "POST", body: form});
+        if (!res.ok) throw new Error((await res.json()).detail || "No se pudo procesar el PDF.");
+        const data = await res.json();
+        emolumentos = mergeEmolumentos(emolumentos.concat(data.emolumentos || []));
+        input.value = "";
+        renderEmolumentos();
+        setStatus(`PDF importado: ${emolumentos.length} periodos, renta total ${formatMoney(data.total_renta_imponible || 0)}.`);
+        scheduleCalculate();
+      } catch (error) {
+        setStatus(error.message || "No se pudo leer el PDF de emolumentos.");
+      }
     }
 
     function formatMoney(value) {
@@ -1368,10 +1697,12 @@ INDEX_HTML = r"""
     }
 
     document.getElementById("pdfBtn").addEventListener("click", generatePdf);
+    document.getElementById("excelBtn").addEventListener("click", generateExcel);
     document.getElementById("ipcBtn").addEventListener("click", () => showIndicator("ipc"));
     document.getElementById("imrBtn").addEventListener("click", () => showIndicator("imr"));
     document.getElementById("logoutLink").href = appPath("/logout");
     document.getElementById("cartolaFiles").addEventListener("change", loadCartolasLocally);
+    document.getElementById("emolumentosPdf").addEventListener("change", loadEmolumentosPdf);
     document.getElementById("tiene_arrastre").addEventListener("change", event => {
       document.getElementById("arrastreBox").classList.toggle("hidden", !event.target.checked);
       scheduleCalculate();
@@ -1383,3 +1714,8 @@ INDEX_HTML = r"""
 </body>
 </html>
 """
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run("web_app:app", host="127.0.0.1", port=8000, log_level="info")

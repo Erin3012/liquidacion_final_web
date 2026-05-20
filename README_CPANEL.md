@@ -26,6 +26,8 @@ cartola_parser.py
 config.py
 auth.py
 auth_config.json
+emolumentos_parser.py
+excel_engine.py
 make_password_hash.py
 imr.json
 ipc.json

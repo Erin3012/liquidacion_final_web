@@ -90,20 +90,33 @@ def create_session(username):
 
 
 def validate_session(token):
+    return session_user(token) is not None
+
+
+def session_user(token):
     if not token:
-        return False
+        return None
     try:
         config = _read_config()
         decoded = base64.urlsafe_b64decode(token.encode("ascii")).decode("utf-8")
         username, expires, signature = decoded.rsplit(":", 2)
         payload = f"{username}:{expires}"
         if not hmac.compare_digest(signature, _signature(payload, config["secret_key"])):
-            return False
+            return None
         if int(expires) < int(time.time()):
-            return False
-        return find_user(username) is not None
+            return None
+        return find_user(username)
     except Exception:
-        return False
+        return None
+
+
+def session_role(token):
+    user = session_user(token)
+    return (user or {}).get("role", "user")
+
+
+def is_admin_session(token):
+    return session_role(token) == "admin"
 
 
 def cookie_header(username, secure=False, path="/"):

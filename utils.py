@@ -71,6 +71,75 @@ def cargar_utm_historico():
     else:
         print(f"â„¹ï¸ Archivo '{UTM_JSON_PATH}' no encontrado.")
 
+
+def _write_json_atomic(path, data):
+    directory = os.path.dirname(path)
+    temp_path = os.path.join(directory, f".{os.path.basename(path)}.tmp")
+    with open(temp_path, "w", encoding="utf-8") as file:
+        json.dump(data, file, ensure_ascii=False, indent=4)
+        file.write("\n")
+    os.replace(temp_path, path)
+
+
+def guardar_ipc_rows(rows):
+    valores = {}
+    for row in rows or []:
+        if len(row) < 2:
+            raise ValueError("Cada fila IPC debe tener periodo y valor.")
+        periodo = str(row[0]).strip()
+        if not re.fullmatch(r"\d{4}-\d{2}", periodo):
+            raise ValueError(f"Periodo IPC invalido: {periodo}. Use formato YYYY-MM.")
+        mes = int(periodo[5:7])
+        if mes < 1 or mes > 12:
+            raise ValueError(f"Mes IPC invalido: {periodo}.")
+        if periodo in valores:
+            raise ValueError(f"Periodo IPC duplicado: {periodo}.")
+        try:
+            valor = float(str(row[1]).strip().replace(",", "."))
+        except ValueError as exc:
+            raise ValueError(f"Valor IPC invalido para {periodo}.") from exc
+        valores[periodo] = valor
+
+    if not valores:
+        raise ValueError("Debe existir al menos un valor IPC.")
+
+    ordenado = {key: valores[key] for key in sorted(valores)}
+    _write_json_atomic(IPC_JSON_PATH, ordenado)
+    cargar_ipc_json_historico()
+    return ordenado
+
+
+def guardar_imr_rows(rows):
+    valores = []
+    seen = set()
+    for row in rows or []:
+        if len(row) < 3:
+            raise ValueError("Cada fila IMRM debe tener Desde, Hasta y Valor.")
+        desde = str(row[0]).strip()
+        hasta = str(row[1]).strip()
+        try:
+            datetime.strptime(desde, "%d/%m/%Y")
+            datetime.strptime(hasta, "%d/%m/%Y")
+        except ValueError as exc:
+            raise ValueError("Las fechas IMRM deben usar formato DD/MM/YYYY.") from exc
+        key = (desde, hasta)
+        if key in seen:
+            raise ValueError(f"Tramo IMRM duplicado: {desde} - {hasta}.")
+        seen.add(key)
+        try:
+            valor = int(float(str(row[2]).strip().replace(".", "").replace(",", ".")))
+        except ValueError as exc:
+            raise ValueError(f"Valor IMRM invalido para {desde} - {hasta}.") from exc
+        valores.append({"Desde": desde, "Hasta": hasta, "IMRM": valor})
+
+    if not valores:
+        raise ValueError("Debe existir al menos un tramo IMRM.")
+
+    valores.sort(key=lambda item: datetime.strptime(item["Desde"], "%d/%m/%Y"), reverse=True)
+    _write_json_atomic(IMR_JSON_PATH, valores)
+    cargar_imr_historico()
+    return valores
+
 def obtener_valor_utm(mes, ano, meses_nombres):
     """ Busca el valor de la UTM para un mes y aÃ±o especÃ­ficos. """
     global BD_UTM_VALORES

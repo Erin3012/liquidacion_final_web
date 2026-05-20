@@ -1,0 +1,7 @@
+.venv/
+.idea/
+__pycache__/
+*.pyc
+server.err.log
+server.out.log
+dist/web_app/_internal/
