@@ -154,15 +154,7 @@ if not exist ".venv\Scripts\python.exe" (
 if errorlevel 1 exit /b 1
 
 call :log "Actualizacion completada."
-
-if exist "restart_server.ps1" (
-    choice /C SN /M "Desea reiniciar el servidor ahora"
-    if errorlevel 2 goto done
-    powershell -NoProfile -ExecutionPolicy Bypass -File ".\restart_server.ps1" >> "%LOG%" 2>&1
-    if errorlevel 1 exit /b 1
-)
-
-:done
+call :log "Para reiniciar el servidor ejecute: powershell -NoProfile -ExecutionPolicy Bypass -File .\restart_server.ps1"
 call :log "Listo."
 call :log "URL local: http://127.0.0.1:8000/"
 call :log "URL red:   http://IP-DE-ESTE-PC:8000/"
