@@ -1,5 +1,6 @@
 @echo off
 setlocal EnableExtensions
+set "PATH=%SystemRoot%\System32;%SystemRoot%;%SystemRoot%\System32\WindowsPowerShell\v1.0;%PATH%"
 
 if /I "%~1"=="--worker" goto worker
 
@@ -95,11 +96,25 @@ if exist "auth_config.json" copy /Y "auth_config.json" "%AUTH_BACKUP%" >> "%LOG%
 
 call :log "Descargando archivos actualizados..."
 powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%ZIP_URL%' -OutFile '%ZIP_FILE%' -UseBasicParsing" >> "%LOG%" 2>&1
-if errorlevel 1 exit /b 1
+if errorlevel 1 (
+    call :log "ERROR: No se pudo descargar el ZIP desde GitHub."
+    call :log "Temporal conservado para revision: %TMP_DIR%"
+    exit /b 1
+)
 
 call :log "Descomprimiendo..."
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -LiteralPath '%ZIP_FILE%' -DestinationPath '%EXTRACT_DIR%' -Force" >> "%LOG%" 2>&1
-if errorlevel 1 exit /b 1
+where tar >> "%LOG%" 2>&1
+if not errorlevel 1 (
+    tar -xf "%ZIP_FILE%" -C "%EXTRACT_DIR%" >> "%LOG%" 2>&1
+) else (
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; $ErrorActionPreference='Stop'; Expand-Archive -LiteralPath '%ZIP_FILE%' -DestinationPath '%EXTRACT_DIR%' -Force" >> "%LOG%" 2>&1
+)
+if errorlevel 1 (
+    call :log "ERROR: No se pudo descomprimir el ZIP descargado."
+    call :log "Temporal conservado para revision: %TMP_DIR%"
+    exit /b 1
+)
+call :log "Descompresion completada."
 
 set "SRC_DIR="
 for /d %%D in ("%EXTRACT_DIR%\*") do set "SRC_DIR=%%~fD"
@@ -109,8 +124,12 @@ if not defined SRC_DIR (
 )
 
 call :log "Copiando archivos al servidor local..."
-robocopy "%SRC_DIR%" "%CD%" /E /XD ".git" ".venv" ".idea" "__pycache__" "dist" /XF "server.err.log" "server.out.log" >> "%LOG%" 2>&1
-if errorlevel 8 exit /b 1
+robocopy "%SRC_DIR%" "%CD%" /E /XD ".git" ".venv" ".idea" "__pycache__" "dist" /XF "actualizar_desde_github.bat" "server.err.log" "server.out.log" >> "%LOG%" 2>&1
+if errorlevel 8 (
+    call :log "ERROR: No se pudieron copiar los archivos actualizados."
+    call :log "Temporal conservado para revision: %TMP_DIR%"
+    exit /b 1
+)
 
 if exist "%AUTH_BACKUP%" copy /Y "%AUTH_BACKUP%" "auth_config.json" >> "%LOG%" 2>&1
 goto cleanup_and_install
