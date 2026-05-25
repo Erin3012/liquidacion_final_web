@@ -865,8 +865,12 @@ INDEX_HTML = r"""
       const now = new Date();
       const monthName = optionsData.meses[now.getMonth()] || optionsData.meses[0];
       const year = String(now.getFullYear());
-      ["mes_desde", "mes_hasta", "hist_mes", "arrastre_mes_desde", "arrastre_mes_hasta", "emol_mes"].forEach(id => fillSelect(id, optionsData.meses, monthName));
-      ["ano_desde", "ano_hasta", "hist_ano", "arrastre_ano_desde", "arrastre_ano_hasta", "emol_ano"].forEach(id => fillSelect(id, optionsData.anos, year));
+      ["mes_desde", "mes_hasta", "hist_mes", "emol_mes"].forEach(id => fillSelect(id, optionsData.meses, monthName));
+      ["ano_desde", "ano_hasta", "hist_ano", "emol_ano"].forEach(id => fillSelect(id, optionsData.anos, year));
+      fillSelect("arrastre_mes_desde", ["", ...optionsData.meses], "");
+      fillSelect("arrastre_ano_desde", ["", ...optionsData.anos], "");
+      fillSelect("arrastre_mes_hasta", optionsData.meses, "");
+      fillSelect("arrastre_ano_hasta", optionsData.anos, "");
     }
 
     async function boot() {
@@ -882,6 +886,8 @@ INDEX_HTML = r"""
       renderCartolas();
       renderEmolumentos();
       updateReajusteMode();
+      bindArrastrePeriodRules();
+      updateArrastreHastaFromMainPeriod();
       bindLiquidationPeriodLimit();
       bindAutoCalculate();
       bindCauseRequiredFields();
@@ -914,6 +920,42 @@ INDEX_HTML = r"""
 
     function periodValue(mes, ano) {
       return Number(ano) * 12 + optionsData.meses.indexOf(mes);
+    }
+
+    function previousPeriod(mes, ano) {
+      let monthIndex = optionsData.meses.indexOf(mes);
+      let year = Number(ano);
+      if (monthIndex < 0 || !year) return {mes: "", ano: ""};
+      monthIndex -= 1;
+      if (monthIndex < 0) {
+        monthIndex = 11;
+        year -= 1;
+      }
+      return {mes: optionsData.meses[monthIndex], ano: String(year)};
+    }
+
+    function ensureSelectOption(id, value) {
+      const el = document.getElementById(id);
+      if (!value || Array.from(el.options).some(option => option.value === value)) return;
+      el.add(new Option(value, value));
+    }
+
+    function updateArrastreHastaFromMainPeriod() {
+      const prev = previousPeriod(value("mes_desde"), value("ano_desde"));
+      ensureSelectOption("arrastre_ano_hasta", prev.ano);
+      document.getElementById("arrastre_mes_hasta").value = prev.mes;
+      document.getElementById("arrastre_ano_hasta").value = prev.ano;
+    }
+
+    function bindArrastrePeriodRules() {
+      ["mes_desde", "ano_desde"].forEach(id => {
+        document.getElementById(id).addEventListener("change", () => {
+          updateArrastreHastaFromMainPeriod();
+          scheduleCalculate();
+        });
+      });
+      document.getElementById("arrastre_mes_hasta").disabled = true;
+      document.getElementById("arrastre_ano_hasta").disabled = true;
     }
 
     function paymentDueDay(fechaPago, date = new Date()) {
@@ -1338,6 +1380,50 @@ INDEX_HTML = r"""
       return true;
     }
 
+    const arrastreRequiredFields = [
+      {id: "monto_arrastre", label: "Monto adeudado", type: "amount"},
+      {id: "arrastre_mes_desde", label: "Desde mes"},
+      {id: "arrastre_ano_desde", label: "Desde año"},
+      {id: "arrastre_mes_hasta", label: "Hasta mes"},
+      {id: "arrastre_ano_hasta", label: "Hasta año"},
+      {id: "pension_final_arrastre", label: "Pensión final arrastre", type: "amount"},
+    ];
+
+    function validateArrastreRequiredFields() {
+      if (!checked("tiene_arrastre")) return true;
+
+      updateArrastreHastaFromMainPeriod();
+      const missing = [];
+      let firstMissing = null;
+
+      arrastreRequiredFields.forEach(field => {
+        const el = document.getElementById(field.id);
+        const rawValue = String(el.value || "").trim();
+        const isMissing = field.type === "amount" ? cleanCartolaAmount(rawValue) <= 0 : !rawValue;
+        el.classList.toggle("field-error", isMissing);
+        if (isMissing) {
+          missing.push(field.label);
+          if (!firstMissing && !el.disabled) firstMissing = el;
+        }
+      });
+
+      const expectedHasta = previousPeriod(value("mes_desde"), value("ano_desde"));
+      if (
+        value("arrastre_mes_hasta") !== expectedHasta.mes ||
+        value("arrastre_ano_hasta") !== expectedHasta.ano
+      ) {
+        missing.push(`Hasta debe ser ${expectedHasta.mes} ${expectedHasta.ano}`);
+      }
+
+      if (missing.length) {
+        alert(`Faltan datos obligatorios en Deuda anterior:\n\n${missing.map(name => "- " + name).join("\n")}`);
+        document.getElementById("arrastreBox").classList.remove("hidden");
+        if (firstMissing) firstMissing.focus();
+        return false;
+      }
+      return true;
+    }
+
     function bindCauseRequiredFields() {
       causeRequiredFields.forEach(field => {
         const el = document.getElementById(field.id);
@@ -1347,10 +1433,22 @@ INDEX_HTML = r"""
           });
         });
       });
+      arrastreRequiredFields.forEach(field => {
+        const el = document.getElementById(field.id);
+        ["input", "change"].forEach(eventName => {
+          el.addEventListener(eventName, () => {
+            const isValid = field.type === "amount"
+              ? cleanCartolaAmount(el.value) > 0
+              : String(el.value || "").trim();
+            if (isValid) el.classList.remove("field-error");
+          });
+        });
+      });
     }
 
     async function generatePdf() {
       if (!validateCauseRequiredFields()) return;
+      if (!validateArrastreRequiredFields()) return;
       const calculated = await calculate();
       if (!calculated) return;
       const form = new FormData();
@@ -1375,6 +1473,7 @@ INDEX_HTML = r"""
 
     async function generateExcel() {
       if (!validateCauseRequiredFields()) return;
+      if (!validateArrastreRequiredFields()) return;
       const calculated = await calculate();
       if (!calculated) return;
       const form = new FormData();

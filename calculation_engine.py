@@ -66,6 +66,54 @@ def validate_liquidation_until_period(data, today=None):
         )
 
 
+def previous_period(month, year):
+    month_index = config.MESES.index(month)
+    year_value = int(year)
+    month_index -= 1
+    if month_index < 0:
+        month_index = 11
+        year_value -= 1
+    return config.MESES[month_index], str(year_value)
+
+
+def validate_arrastre(data):
+    if not data.get("tiene_arrastre"):
+        return
+
+    required = [
+        ("monto_arrastre", "Monto adeudado"),
+        ("arrastre_mes_desde", "Desde mes"),
+        ("arrastre_ano_desde", "Desde año"),
+        ("arrastre_mes_hasta", "Hasta mes"),
+        ("arrastre_ano_hasta", "Hasta año"),
+        ("pension_final_arrastre", "Pensión final arrastre"),
+    ]
+    missing = []
+    for key, label in required:
+        value = str(data.get(key, "")).strip()
+        if not value:
+            missing.append(label)
+
+    if utils.limpiar_monto(data.get("monto_arrastre", 0)) <= 0:
+        missing.append("Monto adeudado mayor a $0")
+    if utils.limpiar_monto(data.get("pension_final_arrastre", 0)) <= 0:
+        missing.append("Pensión final arrastre mayor a $0")
+
+    if missing:
+        raise ValueError("Faltan datos obligatorios en Deuda anterior: " + ", ".join(missing))
+
+    expected_month, expected_year = previous_period(data["mes_desde"], data["ano_desde"])
+    if data.get("arrastre_mes_hasta") != expected_month or str(data.get("arrastre_ano_hasta")) != expected_year:
+        raise ValueError(
+            f"El periodo Hasta de Deuda anterior debe ser {expected_month} {expected_year}."
+        )
+
+    arrastre_start = _period_value(data["arrastre_mes_desde"], data["arrastre_ano_desde"])
+    arrastre_end = _period_value(data["arrastre_mes_hasta"], data["arrastre_ano_hasta"])
+    if arrastre_start > arrastre_end:
+        raise ValueError("El periodo Desde de Deuda anterior no puede ser posterior al periodo Hasta.")
+
+
 def _normalize_history(historial_pensiones):
     history = []
     for item in historial_pensiones or []:
@@ -406,6 +454,7 @@ def calculate_liquidation(data):
     utils.cargar_imr_historico()
 
     validate_liquidation_until_period(data)
+    validate_arrastre(data)
     _total_months(data)
     history = _normalize_history(data.get("historial_pensiones"))
     ajustes = _normalize_adjustments(data.get("ajustes_manuales"))
