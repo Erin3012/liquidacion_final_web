@@ -1399,7 +1399,7 @@ INDEX_HTML = r"""
       arrastreRequiredFields.forEach(field => {
         const el = document.getElementById(field.id);
         const rawValue = String(el.value || "").trim();
-        const isMissing = field.type === "amount" ? cleanCartolaAmount(rawValue) <= 0 : !rawValue;
+        const isMissing = field.type === "amount" ? cleanCartolaAmount(rawValue) === 0 : !rawValue;
         el.classList.toggle("field-error", isMissing);
         if (isMissing) {
           missing.push(field.label);
@@ -1438,7 +1438,7 @@ INDEX_HTML = r"""
         ["input", "change"].forEach(eventName => {
           el.addEventListener(eventName, () => {
             const isValid = field.type === "amount"
-              ? cleanCartolaAmount(el.value) > 0
+              ? cleanCartolaAmount(el.value) !== 0
               : String(el.value || "").trim();
             if (isValid) el.classList.remove("field-error");
           });

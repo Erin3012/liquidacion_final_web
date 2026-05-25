@@ -94,8 +94,8 @@ def validate_arrastre(data):
         if not value:
             missing.append(label)
 
-    if utils.limpiar_monto(data.get("monto_arrastre", 0)) <= 0:
-        missing.append("Monto adeudado mayor a $0")
+    if utils.limpiar_monto(data.get("monto_arrastre", 0)) == 0:
+        missing.append("Monto adeudado distinto de $0")
     if utils.limpiar_monto(data.get("pension_final_arrastre", 0)) <= 0:
         missing.append("Pensión final arrastre mayor a $0")
 
