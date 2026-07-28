@@ -127,6 +127,9 @@ def _normalize_history(historial_pensiones):
                 "mes": mes,
                 "ano": ano,
                 "monto": monto,
+                # Los datos antiguos no traen esta propiedad: se conserva
+                # el comportamiento anterior, reiniciando el reajuste.
+                "reinicia_reajuste": item.get("reinicia_reajuste", True) is not False,
                 "mes_idx": config.MESES.index(mes),
                 "ano_val": int(ano),
             }
@@ -242,7 +245,6 @@ def _ipc_rows(data, history):
     break_points_vals = sorted(set(break_points_vals))
 
     tramos = []
-    is_first_sub_period = True
     descuento_meses = int(data.get("descuento_meses") or 0)
 
     for i in range(len(break_points_vals) - 1):
@@ -256,13 +258,26 @@ def _ipc_rows(data, history):
         p_end_m = config.MESES[period_end_val % 12]
         p_end_a = str(period_end_val // 12)
 
-        descuento = descuento_meses if is_first_sub_period else 0
+        # Un cambio de monto puede iniciar un nuevo ciclo (comportamiento
+        # anterior) o solamente cambiar el monto, manteniendo el calendario
+        # original del reajuste. El desfase permite conservar ese calendario
+        # aunque el tramo comience en un mes intermedio.
+        reset_anchor_val = start_date_val
+        for cambio in history:
+            cambio_val = cambio["ano_val"] * 12 + cambio["mes_idx"]
+            if cambio_val <= period_start_val and cambio.get("reinicia_reajuste", True):
+                reset_anchor_val = cambio_val
+
+        if reset_anchor_val == start_date_val:
+            descuento = (period_start_val - start_date_val) + descuento_meses
+        else:
+            descuento = period_start_val - reset_anchor_val
+
         tramos.extend(
             utils.generar_tramos_segun_reajuste(
                 p_start_m, p_start_a, p_end_m, p_end_a, reajuste_tipo, descuento
             )
         )
-        is_first_sub_period = False
 
     rows = []
     total = 0

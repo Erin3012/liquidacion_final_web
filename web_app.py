@@ -764,6 +764,7 @@ INDEX_HTML = r"""
           <label>Año<select id="hist_ano"></select></label>
           <label>Monto<input id="hist_monto" value="$0"></label>
         </div>
+        <label class="check-row" style="margin-top:10px"><input id="hist_reinicia_reajuste" type="checkbox" checked> Reiniciar el conteo del reajuste desde este cambio</label>
         <div class="actions" style="margin-top:10px">
           <button class="secondary" type="button" onclick="addHistory()">Agregar cambio</button>
           <button class="neutral" type="button" onclick="clearHistory()">Limpiar</button>
@@ -1495,7 +1496,12 @@ INDEX_HTML = r"""
     }
 
     function addHistory() {
-      historialPensiones.push({mes: value("hist_mes"), ano: value("hist_ano"), monto: value("hist_monto")});
+      historialPensiones.push({
+        mes: value("hist_mes"),
+        ano: value("hist_ano"),
+        monto: value("hist_monto"),
+        reinicia_reajuste: checked("hist_reinicia_reajuste")
+      });
       renderHistory();
       scheduleCalculate();
     }
@@ -1514,8 +1520,8 @@ INDEX_HTML = r"""
 
     function renderHistory() {
       document.getElementById("historyTable").innerHTML =
-        "<tr><th>Mes</th><th>Año</th><th>Monto</th><th>Eliminar</th></tr>" +
-        historialPensiones.map((h, index) => `<tr><td>${escapeHtml(h.mes)}</td><td>${escapeHtml(h.ano)}</td><td>${escapeHtml(h.monto)}</td><td><button class="danger small icon-button" type="button" title="Eliminar cambio" aria-label="Eliminar cambio" onclick="removeHistory(${index})">&#128465;</button></td></tr>`).join("");
+        "<tr><th>Mes</th><th>Año</th><th>Monto</th><th>Reajuste</th><th>Eliminar</th></tr>" +
+        historialPensiones.map((h, index) => `<tr><td>${escapeHtml(h.mes)}</td><td>${escapeHtml(h.ano)}</td><td>${escapeHtml(h.monto)}</td><td>${h.reinicia_reajuste === false ? "Mantiene conteo" : "Reinicia conteo"}</td><td><button class="danger small icon-button" type="button" title="Eliminar cambio" aria-label="Eliminar cambio" onclick="removeHistory(${index})">&#128465;</button></td></tr>`).join("");
     }
 
     function addAdjustment() {
