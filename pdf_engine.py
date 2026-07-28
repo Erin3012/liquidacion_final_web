@@ -130,7 +130,10 @@ def generar_pdf(datos_causa, items_tabla, resumen, ciudad, reajuste_tipo, cartol
         w = [32, 32, 13, 30, 40, 43]
         headers = ["Desde", "Hasta", "Meses", "Monto UTM", "Valor UTM", "Total Pesos"]
     elif reajuste_tipo in ("EMOLUMENTOS", "EMOLUMNETOS"):
-        w = [28, 28, 30, 30, 30, 22, 22]
+        # Mantener el ancho de la columna Total igual al de UTM/IMR/IPC.
+        # Los montos de emolumentos pueden tener muchos dígitos y 22 mm
+        # no alcanzaban para mostrar el valor formateado sin desbordarse.
+        w = [25, 25, 28, 28, 28, 13, 43]
         headers = ["Desde", "Hasta", "Renta Imp.", "Desc. Legal", "Base Calc.", "%", "Total"]
     else:
         w = [32, 32, 13, 23, 40, 50]
@@ -405,4 +408,3 @@ def generar_pdf(datos_causa, items_tabla, resumen, ciudad, reajuste_tipo, cartol
         pdf.output(final_output_path)
 
     return final_output_path
-
