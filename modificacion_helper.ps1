@@ -28,9 +28,9 @@ try {
     if (-not $rit -and $url -match '(?i)tipoCausa=([A-Z]).*?rol=(\d+).*?year=(\d{4})') { $rit = '{0}-{1}-{2}' -f $matches[1], $matches[2], $matches[3] }
     if ($text -match '(?i)\bTribunal\s*[:?]\s*(.+?)(?=\s+Texto|\s+Litigantes|\s+Materias|$)') { $tribunal = $matches[1].Trim() }
 
-    $dteMatches = [regex]::Matches($text, '(?i)(?:\bDTE\.|\bSolicitante)\s+(.+?)(?=\s+\[|\s+resoluci|\s+DDO\.|\s+Solicitado\b|$)')
+    $dteMatches = [regex]::Matches($text, '(?is)(?:\bDTE\.|\bSolicitante)\s+(.+?)(?=\s+No existe correo|\s+Tribunal\s+(?:DTE\.|DDO\.)|\s+\[|\s+resoluci|\s+DDO\.|\s+Solicitado\b|\r?\n|$)')
     if ($dteMatches.Count -gt 0) { $dte = $dteMatches[$dteMatches.Count - 1].Groups[1].Value.Trim() }
-    $ddoMatches = [regex]::Matches($text, '(?i)(?:\bDDO\.|\bSolicitado)\s+(.+?)(?=\s+\[|\s+resoluci|\s+TERC\.|\s+Solicitante\b|$)')
+    $ddoMatches = [regex]::Matches($text, '(?is)(?:\bDDO\.|\bSolicitado)\s+(.+?)(?=\s+No existe correo|\s+Tribunal\s+(?:DTE\.|DDO\.)|\s+\[|\s+resoluci|\s+TERC\.|\s+Solicitante\b|\r?\n|$)')
     if ($ddoMatches.Count -gt 0) { $ddo = $ddoMatches[$ddoMatches.Count - 1].Groups[1].Value.Trim() }
 
     $payload = 'RIT: ' + $rit + [Environment]::NewLine + 'Tribunal: ' + $tribunal + [Environment]::NewLine + 'DTE. ' + $dte + [Environment]::NewLine + 'DDO. ' + $ddo
