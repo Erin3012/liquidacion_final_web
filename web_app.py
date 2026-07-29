@@ -1360,16 +1360,21 @@ INDEX_HTML = r"""
     }
 
     function parseModificacionFields(text) {
-      const extract = (labels) => {
+      const normalized = String(text || "").replace(/\r/g, "\n");
+      const extractLine = (labels) => {
         const pattern = labels.join("|");
-        const match = String(text).match(new RegExp(`(?:^|\\n)\\s*(?:${pattern})\\s*[.\\:=-]?\\s*(.+)`, "im"));
-        return match ? match[1].replace(/\\s+/g, " ").trim() : "";
+        const match = normalized.match(new RegExp(`(?:^|\\n)\\s*(?:${pattern})\\s*[.\\:=-]?\\s*([^\\r\\n]+)`, "im"));
+        return match ? match[1].replace(/\s+/g, " ").trim() : "";
       };
+      const ritMatch = normalized.match(/\bRIT\s*[:：]\s*([A-ZÁÉÍÓÚÑ]?\s*-?\d+\s*-\d{4})/i);
+      const tribunalMatch = normalized.match(/\bTribunal\s*[:：]\s*([^\r\n]+)/i);
+      const dteMatch = normalized.match(/\bDTE\.\s*([^\[]+?)(?=\s+\[|\s+DDO\.|$)/i);
+      const ddoMatch = normalized.match(/\bDDO\.\s*([^\[]+?)(?=\s+\[|\s+TERC\.|$)/i);
       return {
-        rit: extract(["RIT", "Rol interno"]),
-        tribunal: extract(["Tribunal", "Juzgado"]),
-        beneficiario: extract(["Beneficiario", "Demandante", "Solicitante", "DTE"]),
-        alimentante: extract(["Alimentante", "Demandado", "Solicitado", "DDO"]),
+        rit: ritMatch ? ritMatch[1].replace(/\s+/g, "").trim() : extractLine(["Rol interno"]),
+        tribunal: tribunalMatch ? tribunalMatch[1].replace(/\s+/g, " ").trim() : extractLine(["Juzgado"]),
+        beneficiario: dteMatch ? dteMatch[1].replace(/\s+/g, " ").trim() : extractLine(["Beneficiario", "Demandante", "Solicitante"]),
+        alimentante: ddoMatch ? ddoMatch[1].replace(/\s+/g, " ").trim() : extractLine(["Alimentante", "Demandado", "Solicitado"]),
       };
     }
 
