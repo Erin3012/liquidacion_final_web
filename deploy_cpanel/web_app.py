@@ -119,10 +119,18 @@ def login_background():
 
 @app.get("/api/modificacion-script")
 def modificacion_script():
-    script_path = os.path.join(BASE_DIR, "leer_modificacion_ie.ps1")
+    script_path = os.path.join(BASE_DIR, "leer_modificacion_ie.bat")
     if not os.path.exists(script_path):
         raise HTTPException(status_code=404, detail="No se encontró el script de MODIFICACION.")
-    return FileResponse(script_path, media_type="text/plain", filename="leer_modificacion_ie.ps1")
+    return FileResponse(script_path, media_type="application/octet-stream", filename="leer_modificacion_ie.bat")
+
+
+@app.get("/api/https-rootca")
+def https_rootca():
+    ca_path = os.path.join(BASE_DIR, "certs", "rootCA.pem")
+    if not os.path.exists(ca_path):
+        raise HTTPException(status_code=404, detail="No se encontró el certificado raíz local.")
+    return FileResponse(ca_path, media_type="application/x-pem-file", filename="rootCA.pem")
 
 
 @app.post("/login")
@@ -602,6 +610,7 @@ INDEX_HTML = r"""
     <h1>Unidad de Liquidaciones Especializadas de Concepción</h1>
     <div class="actions">
       <button class="neutral" type="button" onclick="downloadModificacionScript()">Descargar .BAT MODIFICACION</button>
+      <button class="neutral" type="button" onclick="downloadHttpsCertificate()">Descargar certificado HTTPS</button>
       <button id="ipcBtn" class="neutral" type="button">Ver IPC</button>
       <button id="imrBtn" class="neutral" type="button">Ver IMR</button>
       <button id="pdfBtn" class="danger" type="button">Generar PDF</button>
@@ -1010,6 +1019,16 @@ INDEX_HTML = r"""
       link.click();
       link.remove();
       setStatus("Script descargado. Ejecútelo en el equipo que tiene abierta la ventana MODIFICACION.");
+    }
+
+    function downloadHttpsCertificate() {
+      const link = document.createElement("a");
+      link.href = apiPath("/api/https-rootca");
+      link.download = "rootCA.pem";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setStatus("Certificado descargado. Instale el certificado raiz en este equipo.");
     }
 
     async function readClipboardText() {
