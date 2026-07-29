@@ -120,8 +120,12 @@ def load_indicators():
 
 
 @app.get("/", response_class=HTMLResponse)
-def index():
-    return HTMLResponse(INDEX_HTML.replace("{{APP_VERSION}}", get_project_version()))
+def index(request: Request):
+    is_admin = (current_user(request) or {}).get("role") == "admin"
+    admin_buttons = """<button class=\"neutral\" type=\"button\" onclick=\"downloadModificacionAuxiliar()\">Descargar auxiliar MODIFICACION</button>
+      <button class=\"neutral\" type=\"button\" onclick=\"downloadModificacionScript()\">Descargar .BAT MODIFICACION</button>
+      <button class=\"neutral\" type=\"button\" onclick=\"downloadHttpsCertificate()\">Descargar certificado HTTPS</button>""" if is_admin else ""
+    return HTMLResponse(INDEX_HTML.replace("{{APP_VERSION}}", get_project_version()).replace("{{ADMIN_BUTTONS}}", admin_buttons))
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -138,7 +142,8 @@ def login_background():
 
 
 @app.get("/api/modificacion-script")
-def modificacion_script():
+def modificacion_script(request: Request):
+    require_admin(request)
     script_path = os.path.join(BASE_DIR, "leer_modificacion_ie.bat")
     if not os.path.exists(script_path):
         raise HTTPException(status_code=404, detail="No se encontró el script de MODIFICACION.")
@@ -146,7 +151,8 @@ def modificacion_script():
 
 
 @app.get("/api/modificacion-auxiliar")
-def modificacion_auxiliar():
+def modificacion_auxiliar(request: Request):
+    require_admin(request)
     archive = io.BytesIO()
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
         for filename in ("modificacion_helper.ps1", "instalar_auxiliar_modificacion.bat"):
@@ -162,7 +168,8 @@ def modificacion_auxiliar():
 
 
 @app.get("/api/https-rootca")
-def https_rootca():
+def https_rootca(request: Request):
+    require_admin(request)
     ca_path = os.path.join(BASE_DIR, "certs", "rootCA.pem")
     if not os.path.exists(ca_path):
         raise HTTPException(status_code=404, detail="No se encontró el certificado raíz local.")
@@ -720,9 +727,7 @@ INDEX_HTML = r"""
     <h1>Unidad de Liquidaciones Especializadas de Concepción</h1>
     <div class="actions">
       <button class="neutral" type="button" onclick="runModificacionAuxiliar()">Obtener datos MODIFICACION</button>
-      <button class="neutral" type="button" onclick="downloadModificacionAuxiliar()">Descargar auxiliar MODIFICACION</button>
-      <button class="neutral" type="button" onclick="downloadModificacionScript()">Descargar .BAT MODIFICACION</button>
-      <button class="neutral" type="button" onclick="downloadHttpsCertificate()">Descargar certificado HTTPS</button>
+      {{ADMIN_BUTTONS}}
       <button id="ipcBtn" class="neutral" type="button">Ver IPC</button>
       <button id="imrBtn" class="neutral" type="button">Ver IMRM</button>
       <button id="excelBtn" class="secondary" type="button">Generar Excel</button>
