@@ -601,6 +601,7 @@ INDEX_HTML = r"""
   <header>
     <h1>Unidad de Liquidaciones Especializadas de Concepción</h1>
     <div class="actions">
+      <button class="neutral" type="button" onclick="downloadModificacionScript()">Descargar .BAT MODIFICACION</button>
       <button id="ipcBtn" class="neutral" type="button">Ver IPC</button>
       <button id="imrBtn" class="neutral" type="button">Ver IMR</button>
       <button id="pdfBtn" class="danger" type="button">Generar PDF</button>
@@ -623,7 +624,6 @@ INDEX_HTML = r"""
         </div>
         <div class="actions" style="margin-top:10px">
           <button class="neutral" type="button" onclick="pasteSitfaData()">Pegar datos SITFA</button>
-          <button class="neutral" type="button" onclick="downloadModificacionScript()">Descargar .BAT MODIFICACION</button>
         </div>
       </section>
 
