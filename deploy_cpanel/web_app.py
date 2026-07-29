@@ -117,6 +117,14 @@ def login_background():
     return FileResponse(image_path, media_type="image/png")
 
 
+@app.get("/api/modificacion-script")
+def modificacion_script():
+    script_path = os.path.join(BASE_DIR, "leer_modificacion_ie.ps1")
+    if not os.path.exists(script_path):
+        raise HTTPException(status_code=404, detail="No se encontró el script de MODIFICACION.")
+    return FileResponse(script_path, media_type="text/plain", filename="leer_modificacion_ie.ps1")
+
+
 @app.post("/login")
 def login(request: Request, username: str = Form(...), password: str = Form(...)):
     if not auth.check_credentials(username, password):
@@ -615,6 +623,7 @@ INDEX_HTML = r"""
         </div>
         <div class="actions" style="margin-top:10px">
           <button class="neutral" type="button" onclick="pasteSitfaData()">Pegar datos SITFA</button>
+          <button class="neutral" type="button" onclick="downloadModificacionScript()">Descargar script MODIFICACION</button>
         </div>
       </section>
 
@@ -993,6 +1002,16 @@ INDEX_HTML = r"""
       }
     }
 
+    function downloadModificacionScript() {
+      const link = document.createElement("a");
+      link.href = apiPath("/api/modificacion-script");
+      link.download = "leer_modificacion_ie.ps1";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setStatus("Script descargado. Ejecútelo en el equipo que tiene abierta la ventana MODIFICACION.");
+    }
+
     async function readClipboardText() {
       if (navigator.clipboard && window.isSecureContext) {
         return await navigator.clipboard.readText();
@@ -1012,12 +1031,22 @@ INDEX_HTML = r"""
 
       const dte = parseSitfaSubject(trimmed, ["DTE", "Solicitante"]);
       const ddo = parseSitfaSubject(trimmed, ["DDO", "Solicitado"]);
-      if (!dte && !ddo) throw new Error("No se encontraron DTE/DDO");
+      const labeled = parseModificacionFields(trimmed);
+      if (!dte && !ddo && !labeled.rit && !labeled.tribunal && !labeled.beneficiario && !labeled.alimentante) throw new Error("No se encontraron datos de SITFA o MODIFICACION");
 
       return {
-        beneficiario: dte ? `${dte.rut} ${dte.nombre}` : "",
-        alimentante: ddo ? `${ddo.rut} ${ddo.nombre}` : "",
+        ...labeled,
+        beneficiario: dte ? `${dte.rut} ${dte.nombre}` : labeled.beneficiario,
+        alimentante: ddo ? `${ddo.rut} ${ddo.nombre}` : labeled.alimentante,
       };
+    }
+
+    function parseModificacionFields(text) {
+      const extract = (labels) => {
+        const match = String(text).match(new RegExp(`(?:^|\\n)\\s*(?:${labels.join("|")})\\s*[:\\-]?\\s*(.+)`, "im"));
+        return match ? match[1].replace(/\\s+/g, " ").trim() : "";
+      };
+      return {rit: extract(["RIT", "Rol interno"]), tribunal: extract(["Tribunal", "Juzgado"]), beneficiario: extract(["Beneficiario", "Demandante", "Solicitante", "DTE"]), alimentante: extract(["Alimentante", "Demandado", "Solicitado", "DDO"])};
     }
 
     function parseSitfaSubject(text, roles) {
