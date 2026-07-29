@@ -14,5 +14,4 @@ try {
     $m=[regex]::Matches($text,'(?i)(?:\bDTE\.|\bSolicitante)\s+(.+?)(?=\s+\[|\s+resoluci|\s+DDO\.|\s+Solicitado\b|$)'); if($m.Count -gt 0){$dte=$m[$m.Count-1].Groups[1].Value.Trim()}
     $m=[regex]::Matches($text,'(?i)(?:\bDDO\.|\bSolicitado)\s+(.+?)(?=\s+\[|\s+resoluci|\s+TERC\.|\s+Solicitante\b|$)'); if($m.Count -gt 0){$ddo=$m[$m.Count-1].Groups[1].Value.Trim()}
     $payload='RIT: '+$rit+[Environment]::NewLine+'Tribunal: '+$tribunal+[Environment]::NewLine+'DTE. '+$dte+[Environment]::NewLine+'DDO. '+$ddo; Set-Clipboard -Value $payload
-    Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show('Datos de MODIFICACION copiados al portapapeles. Vuelva a la aplicación y pulse Pegar datos SITFA.','Liquidación web') | Out-Null
 } catch { Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show($_.Exception.Message,'Liquidación web - error') | Out-Null }

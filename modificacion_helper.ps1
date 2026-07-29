@@ -35,8 +35,6 @@ try {
 
     $payload = 'RIT: ' + $rit + [Environment]::NewLine + 'Tribunal: ' + $tribunal + [Environment]::NewLine + 'DTE. ' + $dte + [Environment]::NewLine + 'DDO. ' + $ddo
     Set-Clipboard -Value $payload
-    Add-Type -AssemblyName PresentationFramework
-    [System.Windows.MessageBox]::Show('Datos de MODIFICACION copiados al portapapeles. Vuelva a la aplicación y pulse Pegar datos SITFA.', 'Liquidación web') | Out-Null
 } catch {
     Add-Type -AssemblyName PresentationFramework
     [System.Windows.MessageBox]::Show($_.Exception.Message, 'Liquidación web - error') | Out-Null
