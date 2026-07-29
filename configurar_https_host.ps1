@@ -45,6 +45,14 @@ Write-Host ("Generando certificado para: " + ($names -join ", "))
 $caRoot = (& $mkcertPath -CAROOT).Trim()
 Copy-Item -LiteralPath (Join-Path $caRoot "rootCA.pem") -Destination (Join-Path $certDir "rootCA.pem") -Force
 
+try {
+    if (-not (Get-NetFirewallRule -DisplayName "Liquidacion Web HTTPS 8000" -ErrorAction SilentlyContinue)) {
+        New-NetFirewallRule -DisplayName "Liquidacion Web HTTPS 8000" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow -Profile Private | Out-Null
+    }
+} catch {
+    Write-Warning "No se pudo crear la regla de Firewall. Ejecute este instalador como administrador si otros equipos no logran conectarse."
+}
+
 Write-Host "Reiniciando la aplicación con HTTPS..."
 & (Join-Path $ProjectDir "restart_server.ps1")
 
