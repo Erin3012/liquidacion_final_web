@@ -1,9 +1,11 @@
 import json
+import io
 import os
 import shutil
 import sys
 import tempfile
 import time
+import zipfile
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -141,6 +143,22 @@ def modificacion_script():
     if not os.path.exists(script_path):
         raise HTTPException(status_code=404, detail="No se encontró el script de MODIFICACION.")
     return FileResponse(script_path, media_type="application/octet-stream", filename="leer_modificacion_ie.bat")
+
+
+@app.get("/api/modificacion-auxiliar")
+def modificacion_auxiliar():
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
+        for filename in ("modificacion_helper.ps1", "instalar_auxiliar_modificacion.bat"):
+            path = os.path.join(BASE_DIR, filename)
+            if not os.path.exists(path):
+                raise HTTPException(status_code=404, detail=f"No se encontró {filename}.")
+            bundle.write(path, arcname=filename)
+    return Response(
+        content=archive.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="auxiliar_modificacion.zip"'},
+    )
 
 
 @app.get("/api/https-rootca")
@@ -701,6 +719,8 @@ INDEX_HTML = r"""
   <header>
     <h1>Unidad de Liquidaciones Especializadas de Concepción</h1>
     <div class="actions">
+      <button class="neutral" type="button" onclick="runModificacionAuxiliar()">Obtener datos MODIFICACION</button>
+      <button class="neutral" type="button" onclick="downloadModificacionAuxiliar()">Descargar auxiliar MODIFICACION</button>
       <button class="neutral" type="button" onclick="downloadModificacionScript()">Descargar .BAT MODIFICACION</button>
       <button class="neutral" type="button" onclick="downloadHttpsCertificate()">Descargar certificado HTTPS</button>
       <button id="ipcBtn" class="neutral" type="button">Ver IPC</button>
@@ -1335,6 +1355,21 @@ INDEX_HTML = r"""
       link.click();
       link.remove();
       setStatus("Script descargado. Ejecútelo en el equipo que tiene abierta la ventana MODIFICACION.");
+    }
+
+    function runModificacionAuxiliar() {
+      window.location.href = "liquidacion://modificacion";
+      setStatus("Auxiliar solicitado. Cuando termine, pulse Pegar datos SITFA.");
+    }
+
+    function downloadModificacionAuxiliar() {
+      const link = document.createElement("a");
+      link.href = apiPath("/api/modificacion-auxiliar");
+      link.download = "auxiliar_modificacion.zip";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setStatus("Auxiliar descargado. Descomprima el ZIP y ejecute instalar_auxiliar_modificacion.bat.");
     }
 
     function downloadHttpsCertificate() {
