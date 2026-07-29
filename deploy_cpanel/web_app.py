@@ -623,7 +623,7 @@ INDEX_HTML = r"""
         </div>
         <div class="actions" style="margin-top:10px">
           <button class="neutral" type="button" onclick="pasteSitfaData()">Pegar datos SITFA</button>
-          <button class="neutral" type="button" onclick="downloadModificacionScript()">Descargar script MODIFICACION</button>
+          <button class="neutral" type="button" onclick="downloadModificacionScript()">Descargar .BAT MODIFICACION</button>
         </div>
       </section>
 
@@ -1005,7 +1005,7 @@ INDEX_HTML = r"""
     function downloadModificacionScript() {
       const link = document.createElement("a");
       link.href = apiPath("/api/modificacion-script");
-      link.download = "leer_modificacion_ie.ps1";
+      link.download = "leer_modificacion_ie.bat";
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -1043,7 +1043,7 @@ INDEX_HTML = r"""
 
     function parseModificacionFields(text) {
       const extract = (labels) => {
-        const match = String(text).match(new RegExp(`(?:^|\\n)\\s*(?:${labels.join("|")})\\s*[:\\-]?\\s*(.+)`, "im"));
+        const match = String(text).match(new RegExp(`(?:^|\\n)\\s*(?:${labels.join("|")})\\s*[.\\:=-]?\\s*(.+)`, "im"));
         return match ? match[1].replace(/\\s+/g, " ").trim() : "";
       };
       return {rit: extract(["RIT", "Rol interno"]), tribunal: extract(["Tribunal", "Juzgado"]), beneficiario: extract(["Beneficiario", "Demandante", "Solicitante", "DTE"]), alimentante: extract(["Alimentante", "Demandado", "Solicitado", "DDO"])};

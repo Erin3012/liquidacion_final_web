@@ -137,10 +137,10 @@ def login_background():
 
 @app.get("/api/modificacion-script")
 def modificacion_script():
-    script_path = os.path.join(BASE_DIR, "leer_modificacion_ie.ps1")
+    script_path = os.path.join(BASE_DIR, "leer_modificacion_ie.bat")
     if not os.path.exists(script_path):
         raise HTTPException(status_code=404, detail="No se encontró el script de MODIFICACION.")
-    return FileResponse(script_path, media_type="text/plain", filename="leer_modificacion_ie.ps1")
+    return FileResponse(script_path, media_type="application/octet-stream", filename="leer_modificacion_ie.bat")
 
 
 @app.post("/login")
@@ -716,7 +716,7 @@ INDEX_HTML = r"""
         </div>
         <div class="actions" style="margin-top:10px">
           <button class="neutral" type="button" onclick="pasteSitfaData()">Pegar datos SITFA</button>
-          <button class="neutral" type="button" onclick="downloadModificacionScript()">Descargar script MODIFICACION</button>
+          <button class="neutral" type="button" onclick="downloadModificacionScript()">Descargar .BAT MODIFICACION</button>
         </div>
       </section>
 
@@ -1321,7 +1321,7 @@ INDEX_HTML = r"""
     function downloadModificacionScript() {
       const link = document.createElement("a");
       link.href = apiPath("/api/modificacion-script");
-      link.download = "leer_modificacion_ie.ps1";
+      link.download = "leer_modificacion_ie.bat";
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -1362,7 +1362,7 @@ INDEX_HTML = r"""
     function parseModificacionFields(text) {
       const extract = (labels) => {
         const pattern = labels.join("|");
-        const match = String(text).match(new RegExp(`(?:^|\\n)\\s*(?:${pattern})\\s*[:\\-]?\\s*(.+)`, "im"));
+        const match = String(text).match(new RegExp(`(?:^|\\n)\\s*(?:${pattern})\\s*[.\\:=-]?\\s*(.+)`, "im"));
         return match ? match[1].replace(/\\s+/g, " ").trim() : "";
       };
       return {
