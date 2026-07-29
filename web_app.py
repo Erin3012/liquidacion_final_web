@@ -1368,8 +1368,8 @@ INDEX_HTML = r"""
       };
       const ritMatch = normalized.match(/\bRIT\s*[:：]\s*([A-ZÁÉÍÓÚÑ]?\s*-?\d+\s*-\d{4})/i);
       const tribunalMatch = normalized.match(/\bTribunal\s*[:：]\s*([^\r\n]+)/i);
-      const dteMatch = normalized.match(/\bDTE\.\s*([^\[]+?)(?=\s+\[|\s+DDO\.|$)/i);
-      const ddoMatch = normalized.match(/\bDDO\.\s*([^\[]+?)(?=\s+\[|\s+TERC\.|$)/i);
+      const dteMatch = normalized.match(/(?:\bDTE\.|\bSolicitante)\s+([^\[]+?)(?=\s+\[|\s+resoluci|\s+DDO\.|\s+Solicitado\b|$)/i);
+      const ddoMatch = normalized.match(/(?:\bDDO\.|\bSolicitado)\s+([^\[]+?)(?=\s+\[|\s+resoluci|\s+TERC\.|\s+Solicitante\b|$)/i);
       return {
         rit: ritMatch ? ritMatch[1].replace(/\s+/g, "").trim() : extractLine(["Rol interno"]),
         tribunal: tribunalMatch ? tribunalMatch[1].replace(/\s+/g, " ").trim() : extractLine(["Juzgado"]),
